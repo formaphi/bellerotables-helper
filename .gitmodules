@@ -1,0 +1,3 @@
+[submodule "end2end"]
+	path = end2end
+	url = /home/pandrade/development/end2end
