@@ -150,6 +150,19 @@ make rebuild   # down + up
 
 Binary at `/build/out/iptables-manager` inside container. Requires `--cap-add NET_ADMIN`.
 
+#### Verifying rules written by libiptc
+
+AlmaLinux 8 `iptables` CLI uses `xtables-nft-multi` (nftables backend). libiptc writes to legacy tables — the default CLI cannot see them. The Dockerfile builds `iptables-legacy` from source and installs it at `/usr/local/sbin/iptables-legacy`.
+
+```bash
+# Inside container — verify rules written by libiptc
+XTABLES_LIBDIR=/usr/lib64/xtables iptables-legacy -t mangle -S bb_mangle_redir_1
+```
+
+`XTABLES_LIBDIR` is also set system-wide via `/etc/profile.d/xtables.sh` (active in login shells).
+
+> **Note for end2end:** end2end sandbox uses Perl + `iptables-restore` (nft backend) — reads and writes both go through nftables, no conflict. When `iptables-manager` (libiptc) replaces the Perl script, the end2end firewall container will need the same `iptables-legacy` build to keep test verification working.
+
 ## End-to-End Tests (submodule)
 
 The `end2end/` submodule contains BDD characterization tests for the legacy Perl scripts, using Python Behave + Docker sandbox.
