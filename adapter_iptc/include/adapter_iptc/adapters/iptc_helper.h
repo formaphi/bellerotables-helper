@@ -1,20 +1,21 @@
-#ifndef LIBIPTC_HANDLE_H
-#define LIBIPTC_HANDLE_H
+#ifndef IPTC_HELPER_H
+#define IPTC_HELPER_H
+
+#include "adapter_iptc/i_iptc_helper.h"
 
 #include <string>
 
-struct ipt_entry;
 struct xtc_handle;
 
-class IptcHelper {
+class IptcHelper final : public IIptcHelper {
 public:
   IptcHelper(const std::string &table, const std::string &chain);
   ~IptcHelper();
 
-  void createChain();
-  void flushEntries();
-  void appendEntry(const ipt_entry *entry);
-  void commit();
+  void createChain() override;
+  void flushEntries() override;
+  void appendEntry(const ipt_entry *entry) override;
+  void commit() override;
 
 private:
   void ensureOpen();
@@ -24,4 +25,4 @@ private:
   xtc_handle *m_handle;
 };
 
-#endif /* LIBIPTC_HANDLE_H */
+#endif

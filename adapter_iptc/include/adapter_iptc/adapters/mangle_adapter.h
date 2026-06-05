@@ -2,14 +2,15 @@
 #define MANGLE_ADAPTER_IMPL_H
 
 #include "adapter_iptc/i_mangle_adapter.h"
+#include "adapter_iptc/i_iptc_helper.h"
 #include "adapter_iptc/adapters/iptc_helper.h"
 
+#include <memory>
 #include <string>
 
 class MangleAdapter final : public IMangleAdapter {
 public:
   MangleAdapter(const std::string &chain);
-  ~MangleAdapter() = default;
 
   void createChain() override;
   void flush() override;
@@ -17,13 +18,10 @@ public:
   void addNflogRule(MarkParam mark, NflogParam nflog) override;
   void commit() override;
 
-#ifdef UNIT_TEST
-  void setHelper(const IptcHelper &helper);
-#endif // UNIT_TEST
+  void setHelper(std::shared_ptr<IIptcHelper> helper);
 
 private:
-  IptcHelper m_handle;
-  std::string m_chain;
+  std::shared_ptr<IIptcHelper> m_helper;
 };
 
-#endif /* MANGLE_ADAPTER_IMPL_H */
+#endif
