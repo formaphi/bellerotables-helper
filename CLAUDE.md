@@ -24,6 +24,47 @@ Ring 3 (interface adapters)  — db-reader, serializer, file-writer
 Ring 4 (frameworks/drivers)  — framework/db-driver, framework/command-builder, src/main.cpp
 ```
 
+## Domain Model (Redir Bounded Context)
+
+### Entities
+
+**Policy** — sole entity and aggregate root. Identity: `redir_id` (from `firewall_redirects`). Core: id, mark, chain name. Holds feature-specific Value Objects. All iptables rules are derived output from Policy state — not entities.
+
+### Value Objects
+
+| VO | Purpose | Source |
+|----|---------|--------|
+| Device | {ip, mark} per WAN interface | `box_net_device` + `security_polices_mark` |
+| MonitoringConfig | monitor/log flags, nflog prefix/group | `firewall_redirects.monitor`, `.log` |
+| GeoIpConfig | countries, allowlist/blocklist mode | `firewall_redirects` + geo tables |
+| DosConfig | rate, burst, hashlimit params | `firewall_redirects` + related tables |
+| SslConfig | certificate, priority, workers | `firewall_redirects_ssl` + `profile_ssl` |
+| SchedulingConfig | time/date constraints | `obj_time`, `obj_date` join tables |
+| IpsetConfig | allowlist/blocklist IP sets | ipset tables |
+| AuthConfig | session ipset, global/per-rule | `firewall_redirects` auth fields |
+| IpsConfig | IPS profile, queue numbers | `profile_ips` + filesystem |
+| AtpConfig | threat categories, ipset names | `firewall_redirects_threat` |
+
+### Key Decisions
+
+- **Policy is the only entity** — everything else is VO or external reference
+- **Device is VO** — identity managed outside this bounded context
+- **Iptables rules are output** — generated from Policy state, flushed and recreated each run, no identity or lifecycle
+- **Feature VOs are composable** — each feature adds its VO without bloating Policy
+- **External references** (IPS/SSL profiles) — managed in other bounded contexts, referenced by ID
+
+### Execution Flow (Clean Architecture)
+
+```
+main (Ring 4) → UseCase (Ring 2) → output port interface (Ring 2)
+                                      ↓ implemented by
+                                   MangleAdapter (Ring 3/4)
+                  ↑ receives data via input port
+               DbReader (Ring 3) implements input port (Ring 2)
+```
+
+Ring 2 defines WHAT (use case + port interfaces). Ring 3 provides HOW (DB reader, adapter).
+
 ## Build System
 
 C++11, CMake 3.10+, Conan 2.x. GCC latest on Linux x86_64.
