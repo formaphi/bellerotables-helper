@@ -36,11 +36,5 @@ RUN wget -q https://www.netfilter.org/projects/iptables/files/iptables-1.8.5.tar
   echo 'export XTABLES_LIBDIR=/usr/lib64/xtables' >> /etc/profile.d/xtables.sh
 
 WORKDIR /build
-COPY CMakeLists.txt main.cpp iptc_builder.h iptc_target.h \
-     mangle_adapter.h i_libiptc_handle.h \
-     MangleAdapter.h MangleAdapter.cpp \
-     LibiptcHandle.h LibiptcHandle.cpp ./
-
-RUN cmake -B out -DCMAKE_BUILD_TYPE=Debug && cmake --build out
 
 CMD ["sleep", "infinity"]
