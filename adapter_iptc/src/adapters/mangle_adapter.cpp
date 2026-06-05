@@ -7,20 +7,19 @@
 
 #include <memory>
 
-MangleAdapter::MangleAdapter(const std::string& chain)
-    : m_handle("mangle", chain)
-    , m_chain(chain)
+MangleAdapter::MangleAdapter(const std::string &chain)
+    : m_helper(std::make_shared<IptcHelper>("mangle", chain))
 {
 }
 
 void MangleAdapter::createChain()
 {
-    m_handle.createChain();
+    m_helper->createChain();
 }
 
 void MangleAdapter::flush()
 {
-    m_handle.flushEntries();
+    m_helper->flushEntries();
 }
 
 void MangleAdapter::addConntrackRule(MarkParam mark, ConntrackParam conntrack)
@@ -35,7 +34,7 @@ void MangleAdapter::addConntrackRule(MarkParam mark, ConntrackParam conntrack)
         .setTarget(acceptTarget)
         .build();
 
-    m_handle.appendEntry(entry.get());
+    m_helper->appendEntry(entry.get());
 }
 
 void MangleAdapter::addNflogRule(MarkParam mark, NflogParam nflog)
@@ -48,10 +47,15 @@ void MangleAdapter::addNflogRule(MarkParam mark, NflogParam nflog)
         .setTarget(nflogTarget)
         .build();
 
-    m_handle.appendEntry(entry.get());
+    m_helper->appendEntry(entry.get());
+}
+
+void MangleAdapter::setHelper(std::shared_ptr<IIptcHelper> helper)
+{
+    m_helper = helper;
 }
 
 void MangleAdapter::commit()
 {
-    m_handle.commit();
+    m_helper->commit();
 }
