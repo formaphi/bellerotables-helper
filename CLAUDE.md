@@ -26,31 +26,49 @@ Ring 4 (frameworks/drivers)  — framework/db-driver, framework/command-builder,
 
 ## Build System
 
-C++11, CMake 3.10+, Conan 2.x. GCC latest on Linux x86_64.
+C++11, CMake 3.15+, Conan 2.x. GCC 8 on AlmaLinux 8 (Docker).
+
+### Docker Dev Environment
 
 ```bash
-# Install deps (from project root)
-conan install . --profile=profiles/default --build=missing
-
-# Configure + build
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-
-# Run tests
-cd build && ctest --output-on-failure
+make up        # build image + start container
+make enter     # shell into container
+make down      # remove container
+make rebuild   # down + up
 ```
+
+### Build Targets
+
+```bash
+make build            # alias for build-debug
+make build-debug      # default debug build
+make build-asan       # AddressSanitizer
+make build-tsan       # ThreadSanitizer
+make build-valgrind   # debug build + valgrind leak check
+make build-coverage   # gcov build + gcovr HTML report (/build/coverage.html)
+make build-tidy       # debug build + clang-tidy analysis
+make build-format     # clang-format in-place (Google style)
+```
+
+All build targets run inside Docker via `docker exec`. Pipeline: `conan install` → `cmake` → `cmake --build`.
 
 ### Conan Profiles
 
-- `profiles/default` — Debug build, GCC latest
-- `profiles/asan` — AddressSanitizer (same settings, sanitizer flags added at CMake level)
-- `profiles/tsan` — ThreadSanitizer (same settings, sanitizer flags added at CMake level)
+All profiles in `profiles/` with `.conan` suffix. Flags injected via `[conf] tools.build:cxxflags` / `tools.build:exelinkflags`.
+
+- `profiles/default.conan` — GCC 8, C++11, Debug, x86_64
+- `profiles/asan.conan` — AddressSanitizer (`-fsanitize=address -fno-omit-frame-pointer`)
+- `profiles/tsan.conan` — ThreadSanitizer (`-fsanitize=thread`)
+- `profiles/gcov.conan` — Coverage (`--coverage`)
+
+### Static Analysis & Formatting
+
+- `.clang-tidy` — Google preset + bugprone/modernize/performance/readability checks
+- `.clang-format` — Google style, C++11, 100 column limit
 
 ### Dependencies (via Conan)
 
 - `libpq/15.4` — PostgreSQL C client
-- `nlohmann_json/3.11.3` — JSON (header-only)
-- `gtest/1.10.0` — GoogleTest + GMock
 
 Additionally requires system `libiptc` (netfilter).
 

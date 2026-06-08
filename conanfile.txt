@@ -1,0 +1,7 @@
+
+[requires]
+libpq/15.4
+
+[generators]
+CMakeDeps
+CMakeToolchain
