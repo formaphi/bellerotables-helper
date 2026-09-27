@@ -1,187 +1,63 @@
-# CLAUDE.md
+# CLAUDE.md — bellerotables-helper
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code working in this repo.
 
-## Project Overview
+## What this repo is
 
-Modular C++11 binary (`iptables-manager`) replacing legacy Perl firewall scripts (`omne-apply-firewall-input.pl`, `omne-apply-firewall-redir.pl`) from NGFW. Manages iptables rules via netfilter headers and libiptc/xtables. Target platform: AlmaLinux 8 (CentOS 7 ABI).
+The **OS mutator** for the firewall domain: a **C++ one-shot** binary, systemd **socket-activated**,
+that applies iptables rules then **reads the OS back** and returns the real kernel state, then exits.
+Track **H** of the firewall vertical slice. Runs with **minimum capability** (`CAP_NET_ADMIN` only —
+not blanket root).
 
-CLI exposes each firewall domain as a subcommand:
+The one rule that cannot slip: `reported` must come from **reality** (`iptables-save` / live readback),
+never an echo of `desired`. Partial apply → reported shows exactly what stuck.
 
-```bash
-iptables-manager zoneProtection   # INPUT rules (zone access control)
-iptables-manager portForward      # Port forwarding / DNAT
-```
+**No DB, no network, no redis.** The helper talks **only** to the agent, locally, over a **unix
+socket** (one-shot exec + stdin/stdout). The agent validates + correlates + forwards; the API writes.
 
-## Architecture
+## Sibling repos (same parent `blockbit-ngfw-2.0/`)
 
-Clean Architecture with 4 concentric rings. Dependencies point inward only.
+| Repo | Role | Relation |
+|------|------|----------|
+| `ngfw-center-contracts` | OpenAPI SSOT + codegen | **pinned submodule**; C++ (nlohmann) models generated from it |
+| `ngfw-center` | rest-api + agent (C#) | the agent dispatches to this helper over a unix socket |
+| `meta-blockbit` | Yocto integration | packages this helper into the proto image (I5) |
 
-```
-Ring 1 (domain)              — Pure domain logic, zero external deps
-Ring 2 (application)         — Port interfaces (input + output), use cases; depends only on domain
-Ring 3 (interface adapters)  — db-reader, serializer, file-writer
-Ring 4 (frameworks/drivers)  — framework/db-driver, framework/command-builder, src/main.cpp
-```
+**Dependencies:** `ngfw-center-contracts` (C++ codegen). This repo is integration step **I3**.
 
-## Build System
+## Ships a new C++ contract-SDK lib
 
-C++11, CMake 3.15+, Conan 2.x. GCC 8 on AlmaLinux 8 (Docker).
+This helper carries a **greenfield** C++ SDK lib for JSON parsing/normalization + the per-domain
+contract plumbing. It is **NOT** the legacy `lib-omnecpp` (that is crypto/auth coupled to
+Postgres/PAM — `OmneAuth`/`OmneCrypto`, links `-lcrypto -lpq`, zero JSON — unrelated). Do not reuse it.
 
-### Docker Dev Environment
+## Spec + plan
 
-```bash
-make up        # build image + start container
-make enter     # shell into container
-make down      # remove container
-make rebuild   # down + up
-```
+**Not written yet.** Author track-H spec → plan → build **in this repo** (`docs/`). Architecture
+rationale is in the hub: `../docs/decisions/apply-modernization-architecture.md` (helper role +
+security table). The legacy behavior reference is the Perl apply script
+`omne-apply-firewall-redir.pl` and the `suites/redir/` E2E suite in `~/development/end2end`.
 
-### Build Targets
+## Locked constraints
 
-```bash
-make build            # alias for build-debug
-make build-debug      # default debug build
-make build-asan       # AddressSanitizer
-make build-tsan       # ThreadSanitizer
-make build-valgrind   # debug build + valgrind leak check
-make build-coverage   # gcov build + gcovr HTML report (/build/coverage.html)
-make build-tidy       # debug build + clang-tidy analysis
-make build-format     # clang-format in-place (Google style)
-```
+- **One-shot, socket-activated, `CAP_NET_ADMIN` only.** Apply → readback → reported → exit.
+- **Consumes nlohmann models** generated from `ngfw-center-contracts` (pinned submodule, CMake
+  custom target runs `codegen/gen-cpp.py`).
+- **Reported = OS truth**, never an echo of desired.
+- Slice scope: `redirection` DNAT in nat PREROUTING; SNAT POSTROUTING placement deferred from
+  reported (see contract design M3).
 
-All build targets run inside Docker via `docker exec`. Pipeline: `conan install` → `cmake` → `cmake --build`.
+## Contract testing (post-slice)
 
-### Conan Profiles
+Future improvement, **not in the current slice**. Cross-cutting strategy owned by the program hub:
+`../docs/decisions/consumer-driven-contract-testing.md`. This repo's CDC responsibility when it lands:
 
-All profiles in `profiles/` with `.conan` suffix. Flags injected via `[conf] tools.build:cxxflags` / `tools.build:exelinkflags`.
+- **Consumer structural** — regenerate the C++ nlohmann headers from the pinned `ngfw-center-contracts`
+  SHA (CMake `add_custom_command`) and compile; a breaking schema change surfaces as a compile break.
+  The generated structs are the pact, the compiler is the verifier. The helper validates nothing at
+  runtime (POCO) — it trusts input already validated by the API upstream.
 
-- `profiles/default.conan` — GCC 8, C++11, Debug, x86_64
-- `profiles/asan.conan` — AddressSanitizer (`-fsanitize=address -fno-omit-frame-pointer`)
-- `profiles/tsan.conan` — ThreadSanitizer (`-fsanitize=thread`)
-- `profiles/gcov.conan` — Coverage (`--coverage`)
+## Code style
 
-### Static Analysis & Formatting
-
-- `.clang-tidy` — Google preset + bugprone/modernize/performance/readability checks
-- `.clang-format` — Google style, C++11, 100 column limit
-
-### Dependencies (via Conan)
-
-- `libpq/15.4` — PostgreSQL C client
-
-Additionally requires system `libiptc` (netfilter).
-
-## libiptc Usage (Ring 4)
-
-Rules are built as a single contiguous binary buffer, not a tree of objects.
-
-### Buffer layout
-
-```
-[ipt_entry header] [match1] [match2] ... [matchN] [target]
-|                  |<-------- entry->elems[] -------->|
-|<- target_offset ->|                                 |
-|<- next_offset -------------------------------------------->|
-```
-
-### Flow to build a rule
-
-1. Calculate sizes — each match + target with `XT_ALIGN(sizeof(header) + sizeof(data))`
-2. Calculate `target_offset` (sum of ipt_entry + all matches) and `next_offset` (+ target)
-3. Single `calloc` with `next_offset` bytes
-4. Fill `ipt_entry` header (proto, src, dst)
-5. For each match sequentially in the buffer:
-   - Position ptr at correct offset
-   - Fill `xt_entry_match` header (name, match_size, revision)
-   - Fill match-specific data struct (e.g. `xt_mark_mtinfo1`, `xt_tcp`)
-   - Advance `ptr += match_sz`
-6. Fill target at end (e.g. NFLOG, ACCEPT, DROP, MARK)
-7. `iptc_append_entry(chain, entry, handle)`
-8. `iptc_commit(handle)`
-
-### Key headers
-
-| Header | Content |
-|--------|---------|
-| `<libiptc/libiptc.h>` | `iptc_init`, `iptc_create_chain`, `iptc_append_entry`, `iptc_commit`, `iptc_free` |
-| `<linux/netfilter_ipv4/ip_tables.h>` | `struct ipt_entry`, `struct ipt_ip` |
-| `<linux/netfilter/x_tables.h>` | `XT_ALIGN`, `xt_entry_match`, `xt_entry_target` |
-| `<linux/netfilter/xt_mark.h>` | match mark (`xt_mark_mtinfo1`, rev=1) |
-| `<linux/netfilter/xt_tcpudp.h>` | match tcp (`xt_tcp`, rev=0) — `spts[2]` and `dpts[2]` are separate fields |
-| `<linux/netfilter/xt_conntrack.h>` | match conntrack (`xt_conntrack_mtinfo3`, rev=3) |
-| `<linux/netfilter/xt_hashlimit.h>` | match hashlimit (`xt_hashlimit_mtinfo1`, rev=1) — `gc_interval` must be > 0 |
-| `<linux/netfilter/xt_NFLOG.h>` | target NFLOG (`xt_nflog_info`, rev=0) |
-
-### Target types
-
-Two distinct binary layouts — standard vs extension:
-
-| Type | Struct | Name field | Data |
-|------|--------|-----------|------|
-| Standard (ACCEPT, DROP, RETURN) | `xt_standard_target` | empty | `int verdict` |
-| Extension (NFLOG, DNAT, MARK…) | `xt_entry_target` + data | filled | type-specific struct |
-
-Standard target verdicts: `ACCEPT = -NF_ACCEPT - 1`, `DROP = -NF_DROP - 1`, `RETURN = XT_RETURN`.
-
-`iptc_get_target()` returns empty string for standard targets — read `xt_standard_target.verdict` to identify.
-
-### Design patterns (Ring 4 wrapper)
-
-```
-Match (Template Method)
-  write(): set match_size → set name → set revision → fillData()
-  Subclasses: MarkMatch, TcpMatch, UdpMatch, ConntrackMatch, HashlimitMatch
-  Protocol match (tcp/udp) declares protocol() → Builder infers ipt_entry.ip.proto
-
-ITarget (Strategy interface)
-├── StandardTarget — enum class Verdict { ACCEPT, DROP, RETURN }
-└── ExtensionTarget (Template Method)
-    write(): set target_size → set name → fillData()
-    Subclasses: NflogTarget, (future: DnatTarget, MarkTarget…)
-
-RuleBuilder (Builder)
-  addMatch() → setTarget() → build()
-  Owns buffer allocation (calloc) and offset calculation
-```
-
-Files: `iptc_builder.h` (Match + RuleBuilder), `iptc_target.h` (ITarget hierarchy).
-
-### Gotchas
-
-- Link with `ip4tc` (not `iptc`)
-- AlmaLinux 8 defaults to nftables backend — `iptables` CLI won't see legacy tables written by libiptc. Use libiptc reader functions to verify.
-- `-fpermissive` needed for AlmaLinux 8 kernel headers (void* cast in `ipt_get_target`)
-- `hashlimit` `cfg.gc_interval` must be > 0 (e.g. 1000ms), kernel rejects 0
-- `hashlimit` `cfg.avg` for `--hashlimit-upto`: `XT_HASHLIMIT_SCALE * seconds_per_unit / rate` (12/hour → `scale * 300`)
-- C++ requires explicit cast from `calloc` return (`void*` → `ipt_entry*`), use `unique_ptr` with `FreeDeleter` for RAII
-- `unsigned char *` required for buffer pointers — binary data with nulls, not text. `std::string`/`shared_ptr` not applicable.
-
-### Docker dev environment
-
-```bash
-make up        # build image + start container
-make enter     # shell into container
-make down      # remove container
-make rebuild   # down + up
-```
-
-Binary at `/build/out/iptables-manager` inside container. Requires `--cap-add NET_ADMIN`.
-
-## End-to-End Tests (submodule)
-
-The `end2end/` submodule contains BDD characterization tests for the legacy Perl scripts, using Python Behave + Docker sandbox.
-
-```bash
-cd end2end
-python -m venv venv && source venv/bin/activate && pip install -r requirements.txt
-
-make up                              # start Docker sandbox
-make features                        # run all BDD scenarios
-make feature name=geoip              # run single feature
-make tags tag=@wip                   # run by tag
-make unit-test                       # pytest unit tests (no Docker)
-make down                            # stop sandbox
-```
-
-Tests run from host (not inside containers). They use `docker exec` for firewall commands and connect to DB on `localhost:5432`. See `end2end/CLAUDE.md` for full details.
+- No comments/docstrings in code unless requested; explain via names.
+- Do not commit unless asked. Branch before a PR.
