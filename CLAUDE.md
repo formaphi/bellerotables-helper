@@ -65,6 +65,42 @@ main (Ring 4) → UseCase (Ring 2) → output port interface (Ring 2)
 
 Ring 2 defines WHAT (use case + port interfaces). Ring 3 provides HOW (DB reader, adapter).
 
+## Socket Endpoint (agent → helper)
+
+The helper is one-shot and socket-activated: `bellero-agent` sends it one request per activation.
+Transport decided in hub `docs/decisions/helper-socket-posix.md`; delivery phases in
+`docs/decisions/agent-two-phase-delivery.md`.
+
+### Wire
+
+- systemd `.socket` unit: Unix-domain `ListenStream=`, `Accept=no`, `SocketMode=0660`, agent's group
+- Helper receives the listening fd from systemd (`LISTEN_FDS`, fd 3), `accept()`s **exactly one**
+  connection, serves it, exits — pending connections stay in the backlog for the next activation
+- `SO_PEERCRED` on the accepted connection — refuse any uid other than the agent's
+- `SOCK_STREAM`, frame = 4-byte unsigned big-endian length + payload; reject frames above the max size
+  before reading them
+- Payload: canonical protobuf JSON of `{correlation_id, id, desired}`
+- Phase 1: no reply, close after handling. Phase 2: one reply frame on the same connection, then close
+
+Not ZeroMQ: libzmq accepts on its own I/O thread, so a one-shot exit can drop a second queued request.
+Not `SOCK_SEQPACKET`: Java's Unix-domain sockets are stream-only.
+
+### Components
+
+| Component | Ring | Responsibility |
+|-----------|------|----------------|
+| Socket lib | 4 | activation fd, single `accept()`, peer-credential check, length-prefixed read/write; RAII fds, errno → exception |
+| Parser | 3 | protobuf facade (hub `protobuf-consumer-facade.md`): JSON → generated message → protovalidate → clean domain type. Outgoing (reply) serialization arrives in phase 2 |
+| Controller | 3 | reads one frame, parses, calls the use case, which drives `adapter_iptc`; maps failures to the reply (phase 2) |
+
+```
+systemd fd → socket lib (Ring 4) → controller (Ring 3) → parser (Ring 3)
+                                        ↓
+                                   UseCase (Ring 2) → MangleAdapter (adapter_iptc)
+```
+
+Build order: socket lib → parser (incoming) → controller → reply path (phase 2).
+
 ## Build System
 
 C++11, CMake 3.10+, Conan 2.x. GCC latest on Linux x86_64.
