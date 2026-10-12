@@ -238,22 +238,8 @@ XTABLES_LIBDIR=/usr/lib64/xtables iptables-legacy -t mangle -S bb_mangle_redir_1
 
 `XTABLES_LIBDIR` is also set system-wide via `/etc/profile.d/xtables.sh` (active in login shells).
 
-> **Note for end2end:** end2end sandbox uses Perl + `iptables-restore` (nft backend) — reads and writes both go through nftables, no conflict. When `iptables-manager` (libiptc) replaces the Perl script, the end2end firewall container will need the same `iptables-legacy` build to keep test verification working.
+> **Note for EndToEnd:** the legacy sandbox verified rules through `iptables-restore` (nft backend). Once the helper (libiptc) writes the rules, the EndToEnd firewall container needs the same `iptables-legacy` build to inspect them.
 
-## End-to-End Tests (submodule)
+## End-to-End Tests
 
-The `end2end/` submodule contains BDD characterization tests for the legacy Perl scripts, using Python Behave + Docker sandbox.
-
-```bash
-cd end2end
-python -m venv venv && source venv/bin/activate && pip install -r requirements.txt
-
-make up                              # start Docker sandbox
-make features                        # run all BDD scenarios
-make feature name=geoip              # run single feature
-make tags tag=@wip                   # run by tag
-make unit-test                       # pytest unit tests (no Docker)
-make down                            # stop sandbox
-```
-
-Tests run from host (not inside containers). They use `docker exec` for firewall commands and connect to DB on `localhost:5432`. See `end2end/CLAUDE.md` for full details.
+Acceptance tests live outside this repo, in the hub's `EndToEnd` submodule (`hub-bellerophon/EndToEnd`): a Python behave harness forked from the legacy end2end suite, legacy Gherkin kept as `@pending`. Scenarios exercising this helper are reactivated once the socket endpoint and `bellero-agent` are in place. See `EndToEnd/docs/specs/` for the harness.
