@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Modular C++11 binary (`iptables-manager`) replacing legacy Perl firewall scripts (`omne-apply-firewall-input.pl`, `omne-apply-firewall-redir.pl`) from NGFW. Manages iptables rules via netfilter headers and libiptc/xtables. Target platform: AlmaLinux 8 (CentOS 7 ABI).
+Modular C++23 binary (`iptables-manager`) replacing legacy Perl firewall scripts (`omne-apply-firewall-input.pl`, `omne-apply-firewall-redir.pl`) from NGFW. Manages iptables rules via netfilter headers and libiptc/xtables. Target platform: the `meta-bellerophon` Yocto image (Scarthgap, kernel 6.6); the AlmaLinux 8 dev container is transitional.
 
 CLI exposes each firewall domain as a subcommand:
 
@@ -73,12 +73,15 @@ Transport decided in hub `docs/decisions/helper-socket-posix.md`; delivery phase
 
 ### Wire
 
-- systemd `.socket` unit: Unix-domain `ListenStream=`, `Accept=no`, `SocketMode=0660`, agent's group
-- Helper receives the listening fd from systemd (`LISTEN_FDS`, fd 3), `accept()`s **exactly one**
+- systemd `.socket` unit: `ListenStream=/run/bellerophon/bellerotables-helper.sock`, `Accept=no`,
+  `SocketMode=0660`, agent's group
+- Helper takes the listening fd with `sd_listen_fds()` (libsystemd), `accept()`s **exactly one**
   connection, serves it, exits — pending connections stay in the backlog for the next activation
-- `SO_PEERCRED` on the accepted connection — refuse any uid other than the agent's
-- `SOCK_STREAM`, frame = 4-byte unsigned big-endian length + payload; reject frames above the max size
-  before reading them
+- `SO_PEERCRED` on the accepted connection — refuse any uid other than the agent's. The agent's user
+  comes from `/etc/bellerophon/bellerotables-helper.conf` (`agent_user=bellero-agent`, `root:root 0644`),
+  resolved with `getpwnam()` at startup; missing file or unknown user refuses every connection
+- `SOCK_STREAM`, frame = 4-byte unsigned big-endian length + payload; frames above 64 KiB are rejected
+  before reading the payload
 - Payload: canonical protobuf JSON of `{correlation_id, id, desired}`
 - Phase 1: no reply, close after handling. Phase 2: one reply frame on the same connection, then close
 
@@ -89,7 +92,7 @@ Not `SOCK_SEQPACKET`: Java's Unix-domain sockets are stream-only.
 
 | Component | Ring | Responsibility |
 |-----------|------|----------------|
-| Socket lib | 4 | activation fd, single `accept()`, peer-credential check, length-prefixed read/write; RAII fds, errno → exception |
+| Socket lib (`adapter_socket/`) | 4 | activation fd, single `accept()`, peer-credential check, length-prefixed read/write; RAII fds, errno → exception |
 | Parser | 3 | protobuf facade (hub `protobuf-consumer-facade.md`): JSON → generated message → protovalidate → clean domain type. Outgoing (reply) serialization arrives in phase 2 |
 | Controller | 3 | reads one frame, parses, calls the use case, which drives `adapter_iptc`; maps failures to the reply (phase 2) |
 
@@ -103,7 +106,7 @@ Build order: socket lib → parser (incoming) → controller → reply path (pha
 
 ## Build System
 
-C++11, CMake 3.10+, Conan 2.x. GCC latest on Linux x86_64.
+C++23, CMake 3.20+ (first with `CMAKE_CXX_STANDARD 23`), Conan 2.x. GCC latest on Linux x86_64 (`std::expected` needs GCC 12+).
 
 ```bash
 # Install deps (from project root)
@@ -217,6 +220,13 @@ Files: `iptc_builder.h` (Match + RuleBuilder), `iptc_target.h` (ITarget hierarch
 - `unsigned char *` required for buffer pointers — binary data with nulls, not text. `std::string`/`shared_ptr` not applicable.
 
 ### Docker dev environment
+
+> **Transitional.** This AlmaLinux 8 `Dockerfile` will be replaced by a dockerization of the
+> `meta-bellerophon` image (hub `docs/design/firewall-vertical-slice.md`, decision 8 / track M5; how to
+> dockerize it is still an open experiment), so the
+> helper runs against the target userspace (Yocto Scarthgap, kernel 6.6, systemd). Do not invest in
+> this Dockerfile beyond what current work needs; requirements it covers today (C++23 toolchain,
+> libsystemd, `iptables-legacy` for verification) move to the image.
 
 ```bash
 make up        # build image + start container
