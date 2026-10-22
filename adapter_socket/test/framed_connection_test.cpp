@@ -1,0 +1,230 @@
+#include <adapter_socket/framed_connection.h>
+
+#include <adapter_socket/exceptions/socket_exception.h>
+#include <adapter_socket/interface_socket_connection.h>
+#include <adapter_socket/peer_credentials.h>
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+namespace {
+
+constexpr std::size_t INCOMING_START_POSITION = 0;
+constexpr std::size_t TRUNCATED_HEADER_BYTES = 2;
+constexpr std::size_t ONE_BYTE_CHUNK_COUNT = 7;
+constexpr uint8_t ZERO_FILL_BYTE = 0;
+constexpr std::size_t WHOLE_FRAME_CHUNK_BYTES = 1024;
+constexpr std::size_t ONE_BYTE_CHUNK_BYTES = 1;
+constexpr std::size_t TWO_BYTE_LENGTH_PAYLOAD_BYTES = 258;
+constexpr uint8_t PAYLOAD_FILL_BYTE = 0xAB;
+constexpr std::size_t BYTES_ABOVE_MAXIMUM = 1;
+constexpr uint32_t SAMPLE_USER_ID = 1000;
+constexpr uint32_t SAMPLE_GROUP_ID = 1001;
+constexpr uint32_t SAMPLE_PROCESS_ID = 4242;
+
+const std::vector<uint8_t> HEADER_FOR_258_BYTES{0x00, 0x00, 0x01, 0x02};
+const std::vector<uint8_t> HEADER_FOR_EMPTY_PAYLOAD{0x00, 0x00, 0x00, 0x00};
+const std::vector<uint8_t> HEADER_ABOVE_MAXIMUM{0x00, 0x01, 0x00, 0x01};
+const std::vector<uint8_t> THREE_BYTE_PAYLOAD{9, 8, 7};
+const std::vector<uint8_t> THREE_BYTE_FRAME{0x00, 0x00, 0x00, 0x03, 9, 8, 7};
+const std::vector<uint8_t> FRAME_CUT_INSIDE_PAYLOAD{0x00, 0x00, 0x00, 0x05, 1, 2};
+
+class FakeSocketConnection final : public adapter_socket::ISocketConnection
+{
+public:
+    FakeSocketConnection(std::vector<uint8_t> incoming, std::size_t chunkBytes, adapter_socket::PeerCredentials credentials = adapter_socket::PeerCredentials())
+        : m_incoming(incoming)
+        , m_chunkBytes(chunkBytes)
+        , m_readPosition(INCOMING_START_POSITION)
+        , m_credentials(credentials)
+    {
+    }
+
+    std::vector<uint8_t> readExactly(std::size_t byteCount) override
+    {
+        m_readRequests.push_back(byteCount);
+
+        std::vector<uint8_t> bytes;
+        while (bytes.size() < byteCount)
+        {
+            if (m_readPosition >= m_incoming.size())
+            {
+                throw adapter_socket::ConnectionClosedException("fake connection ended");
+            }
+
+            const std::size_t available = m_incoming.size() - m_readPosition;
+            const std::size_t stillNeeded = byteCount - bytes.size();
+            const std::size_t step = std::min({m_chunkBytes, available, stillNeeded});
+
+            const auto chunkFirst = m_incoming.begin() + static_cast<std::ptrdiff_t>(m_readPosition);
+            const auto chunkLast = chunkFirst + static_cast<std::ptrdiff_t>(step);
+            bytes.insert(bytes.end(), chunkFirst, chunkLast);
+            m_readPosition += step;
+            m_deliveredChunkSizes.push_back(step);
+        }
+
+        return bytes;
+    }
+
+    void writeAll(const std::vector<uint8_t>& bytes) override
+    {
+        m_written.insert(m_written.end(), bytes.begin(), bytes.end());
+    }
+
+    adapter_socket::PeerCredentials peerCredentials() const override
+    {
+        return m_credentials;
+    }
+
+    const std::vector<uint8_t>& written() const
+    {
+        return m_written;
+    }
+
+    const std::vector<std::size_t>& readRequests() const
+    {
+        return m_readRequests;
+    }
+
+    const std::vector<std::size_t>& deliveredChunkSizes() const
+    {
+        return m_deliveredChunkSizes;
+    }
+
+private:
+    std::vector<uint8_t> m_incoming;
+    std::size_t m_chunkBytes;
+    std::size_t m_readPosition;
+    adapter_socket::PeerCredentials m_credentials;
+    std::vector<uint8_t> m_written;
+    std::vector<std::size_t> m_readRequests;
+    std::vector<std::size_t> m_deliveredChunkSizes;
+};
+
+class TruncatedHeaderConnection final : public adapter_socket::ISocketConnection
+{
+public:
+    std::vector<uint8_t> readExactly(std::size_t) override
+    {
+        return std::vector<uint8_t>(TRUNCATED_HEADER_BYTES, ZERO_FILL_BYTE);
+    }
+
+    void writeAll(const std::vector<uint8_t>&) override
+    {
+    }
+
+    adapter_socket::PeerCredentials peerCredentials() const override
+    {
+        return adapter_socket::PeerCredentials();
+    }
+};
+
+} // namespace
+
+TEST(FramedConnectionTest, RoundTripReturnsWrittenPayload)
+{
+    const std::vector<uint8_t> payload{'h', 'e', 'l', 'l', 'o'};
+    auto writerSide = std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection writer(writerSide);
+    writer.writeFrame(payload);
+
+    auto readerSide = std::make_shared<FakeSocketConnection>(writerSide->written(), WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection reader(readerSide);
+
+    EXPECT_EQ(reader.readFrame(), payload);
+}
+
+TEST(FramedConnectionTest, HeaderForLength258IsBigEndian)
+{
+    const std::vector<uint8_t> payload(TWO_BYTE_LENGTH_PAYLOAD_BYTES, PAYLOAD_FILL_BYTE);
+    auto writerSide = std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection writer(writerSide);
+
+    writer.writeFrame(payload);
+
+    const std::vector<uint8_t>& written = writerSide->written();
+    const std::size_t expectedWrittenBytes = adapter_socket::FramedConnection::HEADER_BYTES + payload.size();
+    ASSERT_EQ(written.size(), expectedWrittenBytes);
+    const auto headerEnd = written.begin() + static_cast<std::ptrdiff_t>(adapter_socket::FramedConnection::HEADER_BYTES);
+    EXPECT_EQ(std::vector<uint8_t>(written.begin(), headerEnd), HEADER_FOR_258_BYTES);
+}
+
+TEST(FramedConnectionTest, ZeroLengthFrameRoundTrips)
+{
+    auto writerSide = std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection writer(writerSide);
+    writer.writeFrame(std::vector<uint8_t>());
+
+    EXPECT_EQ(writerSide->written(), HEADER_FOR_EMPTY_PAYLOAD);
+
+    auto readerSide = std::make_shared<FakeSocketConnection>(writerSide->written(), WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection reader(readerSide);
+
+    EXPECT_TRUE(reader.readFrame().empty());
+}
+
+TEST(FramedConnectionTest, DeclaredLengthAboveMaximumThrowsWithoutReadingPayload)
+{
+    auto readerSide = std::make_shared<FakeSocketConnection>(HEADER_ABOVE_MAXIMUM, WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection reader(readerSide);
+
+    EXPECT_THROW(reader.readFrame(), adapter_socket::FrameTooLargeException);
+    EXPECT_EQ(readerSide->readRequests(), (std::vector<std::size_t>{adapter_socket::FramedConnection::HEADER_BYTES}));
+}
+
+TEST(FramedConnectionTest, WriteFrameAboveMaximumThrowsAndWritesNothing)
+{
+    auto writerSide = std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection writer(writerSide);
+    const std::size_t tooLargeBytes = adapter_socket::FramedConnection::MAX_PAYLOAD_BYTES + BYTES_ABOVE_MAXIMUM;
+    const std::vector<uint8_t> tooLarge(tooLargeBytes, ZERO_FILL_BYTE);
+
+    EXPECT_THROW(writer.writeFrame(tooLarge), adapter_socket::FrameTooLargeException);
+    EXPECT_TRUE(writerSide->written().empty());
+}
+
+TEST(FramedConnectionTest, FrameDeliveredOneByteAtATimeIsAssembled)
+{
+    auto readerSide = std::make_shared<FakeSocketConnection>(THREE_BYTE_FRAME, ONE_BYTE_CHUNK_BYTES);
+    adapter_socket::FramedConnection reader(readerSide);
+
+    EXPECT_EQ(reader.readFrame(), THREE_BYTE_PAYLOAD);
+    EXPECT_EQ(readerSide->deliveredChunkSizes(), std::vector<std::size_t>(ONE_BYTE_CHUNK_COUNT, ONE_BYTE_CHUNK_BYTES));
+}
+
+TEST(FramedConnectionTest, EndOfStreamInsidePayloadThrowsConnectionClosed)
+{
+    auto readerSide = std::make_shared<FakeSocketConnection>(FRAME_CUT_INSIDE_PAYLOAD, WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection reader(readerSide);
+
+    EXPECT_THROW(reader.readFrame(), adapter_socket::ConnectionClosedException);
+}
+
+TEST(FramedConnectionTest, ShortHeaderThrowsConnectionClosedWithoutIndexingPastEnd)
+{
+    auto readerSide = std::make_shared<TruncatedHeaderConnection>();
+    adapter_socket::FramedConnection reader(readerSide);
+
+    EXPECT_THROW(reader.readFrame(), adapter_socket::ConnectionClosedException);
+}
+
+TEST(FramedConnectionTest, PeerCredentialsAreForwardedFromConnection)
+{
+    adapter_socket::PeerCredentials credentials;
+    credentials.userId = SAMPLE_USER_ID;
+    credentials.groupId = SAMPLE_GROUP_ID;
+    credentials.processId = SAMPLE_PROCESS_ID;
+
+    auto connection = std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES, credentials);
+    const adapter_socket::FramedConnection framed(connection);
+
+    const adapter_socket::PeerCredentials forwarded = framed.peerCredentials();
+    EXPECT_EQ(forwarded.userId, SAMPLE_USER_ID);
+    EXPECT_EQ(forwarded.groupId, SAMPLE_GROUP_ID);
+    EXPECT_EQ(forwarded.processId, SAMPLE_PROCESS_ID);
+}

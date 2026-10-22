@@ -59,6 +59,46 @@ Future improvement, **not in the current slice**. Cross-cutting strategy owned b
   The generated classes are the pact, the compiler is the verifier. The helper validates nothing at
   runtime — it trusts input already validated by the API upstream.
 
+## Socket Endpoint (agent → helper)
+
+The helper is one-shot and socket-activated: `bellero-agent` sends it one request per activation.
+Transport decided in hub `docs/decisions/helper-socket-posix.md`; delivery phases in
+`docs/decisions/agent-two-phase-delivery.md`. Why the wire is a length-prefixed stream, and how a Unix
+stream socket differs from UDP: [docs/socket-stream-and-framing.md](docs/socket-stream-and-framing.md).
+
+### Wire
+
+- systemd `.socket` unit: `ListenStream=/run/bellerophon/bellerotables-helper.sock`, `Accept=no`,
+  `SocketMode=0660`, agent's group
+- Helper takes the listening fd with `sd_listen_fds()` (libsystemd), `accept()`s **exactly one**
+  connection, serves it, exits — pending connections stay in the backlog for the next activation
+- `SO_PEERCRED` on the accepted connection — refuse any uid other than the agent's. The agent's user
+  comes from `/etc/bellerophon/bellerotables-helper.conf` (`agent_user=bellero-agent`, `root:root 0644`),
+  resolved with `getpwnam()` at startup; missing file or unknown user refuses every connection
+- `SOCK_STREAM`, frame = 4-byte unsigned big-endian length + payload; frames above 64 KiB are rejected
+  before reading the payload
+- Payload: canonical protobuf JSON of `{correlation_id, id, desired}`
+- Phase 1: no reply, close after handling. Phase 2: one reply frame on the same connection, then close
+
+Not ZeroMQ: libzmq accepts on its own I/O thread, so a one-shot exit can drop a second queued request.
+Not `SOCK_SEQPACKET`: Java's Unix-domain sockets are stream-only.
+
+### Components
+
+| Component | Ring | Responsibility |
+|-----------|------|----------------|
+| Socket lib (`adapter_socket/`) | 4 | activation fd, single `accept()`, peer-credential check, length-prefixed read/write; RAII fds, errno → exception |
+| Parser | 3 | protobuf facade (hub `protobuf-consumer-facade.md`): JSON → generated message → protovalidate → clean domain type. Outgoing (reply) serialization arrives in phase 2 |
+| Controller | 3 | reads one frame, parses, calls the use case, which drives `adapter_iptc`; maps failures to the reply (phase 2) |
+
+```
+systemd fd → socket lib (Ring 4) → controller (Ring 3) → parser (Ring 3)
+                                        ↓
+                                   UseCase (Ring 2) → MangleAdapter (adapter_iptc)
+```
+
+Build order: socket lib → parser (incoming) → controller → reply path (phase 2).
+
 ## Build
 
 C++23, CMake 3.28+, Conan 2.x, GCC 13 (same major as Yocto Scarthgap; `std::expected` needs 12+). Every
