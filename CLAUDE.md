@@ -59,6 +59,52 @@ Future improvement, **not in the current slice**. Cross-cutting strategy owned b
   The generated classes are the pact, the compiler is the verifier. The helper validates nothing at
   runtime — it trusts input already validated by the API upstream.
 
+## Build
+
+C++23, CMake 3.28+, Conan 2.x, GCC 13 (same major as Yocto Scarthgap; `std::expected` needs 12+). Every
+build runs inside the sandbox container (`sandbox/`, Ubuntu 24.04), driven by the `Makefile`. The build
+infrastructure was ported from the personal `piiptables` repo.
+
+```bash
+make sandbox-build                   # build the image (pre-builds Conan deps)
+make rebuild                         # Release binary, BUILD_TESTING=OFF -> production-builds/release/
+make rebuild-unit && make test-unit  # tests + gcov -> coverage-reports/html/index.html
+make rebuild-asan && make test-asan  # tests under ASan + UBSan
+make rebuild-valgrind && make test-valgrind
+make rebuild-tsan && make test-tsan
+make test-one-asan PATTERN=<regex>   # one test binary; same for -unit, -tsan, -valgrind
+make sandbox-shell                   # interactive shell, repo mounted at /workspace
+make help                            # every target
+```
+
+- One Conan profile, `profiles/gcc13.conan` (`build_type=Release`); sanitizer and coverage flags are added at
+  the CMake level so all build types reuse the dependencies cached in the image.
+- Release output lives on the host in `production-builds/`; test builds live in the `test_builds` Docker
+  volume. The container runs as root with `cap_drop: ALL` + `NET_ADMIN`/`NET_RAW`, so it cannot write
+  host-owned dirs: the Makefile pre-creates output dirs world-writable and deletes through the container.
+- Each library (`adapter_*/`) includes its `test/` subdirectory only under `if(BUILD_TESTING)`;
+  `format` and `tidy` pick up every `adapter_*/` directory.
+- TSan aborts with `unexpected memory mapping` on hosts with `vm.mmap_rnd_bits=32` (Ubuntu 24.04 kernels);
+  the container's seccomp profile blocks `setarch -R`. Run `sudo sysctl vm.mmap_rnd_bits=28` on the host
+  before `make test-tsan`. No helper code is multithreaded yet, so TSan is out of the pre-commit hook.
+- `make setup` activates `.githooks/pre-commit` (sandbox image, release, unit, ASan, Valgrind). `format-check`
+  and `tidy-check` are not in the hook yet.
+- How each build type works and its pitfalls: `docs/build/` (asan, tsan, valgrind, gcov, clang-format,
+  clang-tidy).
+- The sandbox sets `iptables` to the legacy backend (`update-alternatives`), so the CLI reads the tables
+  libiptc writes.
+
+> **Transitional.** The sandbox stands in for the `meta-bellerophon` image until that image can be
+> dockerized (hub `docs/design/firewall-vertical-slice.md`, decision 8). Keep it close to the target:
+> same GCC major, legacy iptables, libsystemd.
+
+### Dependencies
+
+- Conan: `gtest/1.14.0` (test requirement; GTest + GMock)
+- System (apt, in the image): `libiptc-dev` (link `ip4tc`), `libxtables-dev`, `libsystemd-dev` (for
+  `sd_listen_fds()`), legacy `iptables` as the default alternative
+- Coming with the parser: protobuf (version must match the `protoc` used by `contracts`)
+
 ## Code style
 
 - No comments/docstrings in code unless requested; explain via names.
