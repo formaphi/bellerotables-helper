@@ -90,7 +90,8 @@ make help                            # every target
 - `make setup` activates `.githooks/pre-commit` (sandbox image, release, unit, ASan, Valgrind). `format-check`
   and `tidy-check` are not in the hook yet.
 - How each build type works and its pitfalls: `docs/build/` (asan, tsan, valgrind, gcov, clang-format,
-  clang-tidy).
+  clang-tidy). Profiling with `perf` is deferred until a high-load E2E scenario exists; the options are in
+  `docs/build/perf.md`.
 - The sandbox sets `iptables` to the legacy backend (`update-alternatives`), so the CLI reads the tables
   libiptc writes.
 
