@@ -1,0 +1,31 @@
+services:
+  sandbox:
+    build:
+      context: ..
+      dockerfile: sandbox/Dockerfile
+    image: bellerotables-helper-sandbox:latest
+    hostname: bellerotables-helper-sandbox
+
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    cap_drop:
+      - ALL
+
+    volumes:
+      - ..:/workspace
+      - test_builds:/test-builds
+
+    networks:
+      - sandbox-net
+
+    stdin_open: true
+    tty: true
+
+networks:
+  sandbox-net:
+    driver: bridge
+    internal: true
+
+volumes:
+  test_builds:

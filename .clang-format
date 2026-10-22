@@ -1,3 +1,49 @@
+---
+# Mirrors the cpp-style skill (references/formatting.md).
 BasedOnStyle: Google
-Standard: Cpp11
+Language: Cpp
+Standard: Latest
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+IndentCaseLabels: true
+NamespaceIndentation: None
 ColumnLimit: 100
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterControlStatement: Always
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: false
+  AfterStruct: true
+  AfterUnion: true
+  BeforeCatch: true
+  BeforeElse: true
+  BeforeLambdaBody: false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+
+BreakConstructorInitializers: BeforeComma
+PackConstructorInitializers: Never
+ConstructorInitializerIndentWidth: 4
+
+PointerAlignment: Left
+DerivePointerAlignment: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+
+FixNamespaceComments: true
+SpacesBeforeTrailingComments: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+SeparateDefinitionBlocks: Always
+
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve

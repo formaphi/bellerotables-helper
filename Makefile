@@ -1,62 +1,241 @@
-IMAGE = iptables-test
-CONTAINER = iptables-dev
+.PHONY: help setup sandbox-build sandbox-shell sandbox-down sandbox-clean-volumes \
+	conan-install configure build rebuild clean \
+	conan-install-unit configure-unit build-unit rebuild-unit test-unit test-one-unit clean-unit \
+	conan-install-asan configure-asan build-asan rebuild-asan test-asan test-one-asan clean-asan \
+	conan-install-tsan configure-tsan build-tsan rebuild-tsan test-tsan test-one-tsan clean-tsan \
+	conan-install-valgrind configure-valgrind build-valgrind rebuild-valgrind test-valgrind test-one-valgrind clean-valgrind \
+	clean-coverage-report format format-check tidy tidy-fix tidy-check
 
-up:
-	docker build -t $(IMAGE) . && docker run -d --name $(CONTAINER) --cap-add NET_ADMIN -v $(CURDIR):/src $(IMAGE)
+COMPOSE        := docker-compose -f sandbox/docker-compose.yml
+RUN            := $(COMPOSE) run --rm sandbox
+WORKSPACE      := /workspace
+TEST_BUILDS    := /test-builds
+CONAN_PROFILE  := $(WORKSPACE)/profiles/gcc13.conan
+TOOLCHAIN_PATH := build/Release/generators/conan_toolchain.cmake
 
-down:
-	docker rm -f $(CONTAINER)
+BUILD_DIR          := $(WORKSPACE)/production-builds/release
+UNIT_BUILD_DIR     := $(TEST_BUILDS)/build-unit
+ASAN_BUILD_DIR     := $(TEST_BUILDS)/build-asan
+TSAN_BUILD_DIR     := $(TEST_BUILDS)/build-tsan
+VALGRIND_BUILD_DIR := $(TEST_BUILDS)/build-valgrind
 
-enter:
-	docker exec -it $(CONTAINER) bash
+COVERAGE_DIR := $(WORKSPACE)/coverage-reports
 
-rebuild: down up
+SANITIZER_FLAGS = -fno-omit-frame-pointer -g
 
-build: build-debug
+# $(1) = output folder
+define conan_install
+	$(RUN) bash -c 'cd $(WORKSPACE) && conan install . --build=missing --no-remote \
+	  --profile default --profile $(CONAN_PROFILE) --output-folder $(1)'
+endef
 
-build-debug:
-	docker exec $(CONTAINER) bash -c "\
-	  conan install /src --profile /src/profiles/default.conan --build=missing --output-folder=/build && \
-	  cmake -B /build -S /src -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=/build/conan_toolchain.cmake && \
-	  cmake --build /build"
+help:
+	@echo "bellerotables-helper targets (all run inside the sandbox container):"
+	@echo ""
+	@echo "setup                       Point git at .githooks/ (run once after cloning)"
+	@echo "sandbox-build               Build the sandbox image"
+	@echo "sandbox-shell               Shell in the sandbox"
+	@echo "sandbox-down                Stop the sandbox (volumes kept)"
+	@echo "sandbox-clean-volumes       Stop the sandbox and delete the test-builds volume"
+	@echo ""
+	@echo "configure | build | rebuild | clean"
+	@echo "                            Release binary, BUILD_TESTING=OFF -> production-builds/release/"
+	@echo ""
+	@echo "<verb>-unit                 Tests + gcov; test-unit writes coverage-reports/html/index.html"
+	@echo "<verb>-asan                 Tests under AddressSanitizer"
+	@echo "<verb>-tsan                 Tests under ThreadSanitizer"
+	@echo "<verb>-valgrind             Tests under Valgrind memcheck"
+	@echo "    verbs: configure build rebuild test test-one(PATTERN=<p>) clean"
+	@echo ""
+	@echo "format | format-check       clang-format (apply | CI gate)"
+	@echo "tidy | tidy-fix | tidy-check clang-tidy (report | fix | CI gate); needs 'make configure'"
+
+setup:
+	git config core.hooksPath .githooks
+	@echo "Git hooks configured. Pre-commit hook is active."
+
+# -- Sandbox ------------------------------------------------------------------
+
+sandbox-build:
+	$(COMPOSE) build
+
+sandbox-shell:
+	$(RUN)
+
+sandbox-down:
+	$(COMPOSE) down
+
+sandbox-clean-volumes:
+	$(COMPOSE) down -v
+
+# -- Release ------------------------------------------------------------------
+# The container runs as root without CAP_DAC_OVERRIDE (cap_drop: ALL), so host-side output dirs
+# are created world-writable first. What it writes there is root-owned; deletes run through it.
+
+conan-install:
+	mkdir -p production-builds/release && chmod 777 production-builds production-builds/release
+	$(call conan_install,$(BUILD_DIR))
+
+configure: conan-install
+	$(RUN) cmake -S $(WORKSPACE) -B $(BUILD_DIR) -G Ninja \
+	  -DCMAKE_TOOLCHAIN_FILE=$(BUILD_DIR)/$(TOOLCHAIN_PATH) \
+	  -DCMAKE_BUILD_TYPE=Release \
+	  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+	  -DBUILD_TESTING=OFF
+
+build:
+	$(RUN) cmake --build $(BUILD_DIR)
+
+rebuild: clean configure build
+
+clean:
+	@if [ -d production-builds/release ]; then $(RUN) find $(BUILD_DIR) -mindepth 1 -delete; fi
+
+# -- Unit tests + gcov --------------------------------------------------------
+
+conan-install-unit:
+	$(call conan_install,$(UNIT_BUILD_DIR))
+
+configure-unit: conan-install-unit
+	$(RUN) cmake -S $(WORKSPACE) -B $(UNIT_BUILD_DIR) -G Ninja \
+	  -DCMAKE_TOOLCHAIN_FILE=$(UNIT_BUILD_DIR)/$(TOOLCHAIN_PATH) \
+	  -DCMAKE_BUILD_TYPE=Release \
+	  -DBUILD_TESTING=ON \
+	  -DENABLE_COVERAGE=ON
+
+build-unit:
+	$(RUN) cmake --build $(UNIT_BUILD_DIR)
+
+rebuild-unit: clean-unit configure-unit build-unit
+
+test-unit:
+	mkdir -p coverage-reports && chmod 777 coverage-reports
+	$(RUN) bash -c '\
+	  lcov --zerocounters --directory $(UNIT_BUILD_DIR) && \
+	  ctest --test-dir $(UNIT_BUILD_DIR) --output-on-failure && \
+	  if [ -z "$$(find $(UNIT_BUILD_DIR) -name "*.gcda" -print -quit)" ]; then \
+	    echo "No coverage data: nothing ran under test."; exit 0; fi && \
+	  mkdir -p $(COVERAGE_DIR) && \
+	  lcov --capture --directory $(UNIT_BUILD_DIR) --output-file $(COVERAGE_DIR)/coverage.info \
+	       --ignore-errors mismatch,mismatch,gcov,gcov && \
+	  lcov --remove $(COVERAGE_DIR)/coverage.info "/usr/*" "/root/.conan2/*" "*/test/*" \
+	       --output-file $(COVERAGE_DIR)/coverage.filtered.info && \
+	  genhtml $(COVERAGE_DIR)/coverage.filtered.info --output-directory $(COVERAGE_DIR)/html \
+	          --title "bellerotables-helper coverage" --legend --demangle-cpp'
+
+test-one-unit:
+	@test -n "$(PATTERN)" || { echo "Usage: make test-one-unit PATTERN=pattern"; exit 1; }
+	$(RUN) ctest --test-dir $(UNIT_BUILD_DIR) --output-on-failure -R $(PATTERN)
+
+clean-unit: clean-coverage-report
+	$(RUN) rm -rf $(UNIT_BUILD_DIR)
+
+clean-coverage-report:
+	@if [ -d coverage-reports ]; then $(RUN) find $(COVERAGE_DIR) -mindepth 1 -delete; fi
+
+# -- AddressSanitizer ---------------------------------------------------------
+
+conan-install-asan:
+	$(call conan_install,$(ASAN_BUILD_DIR))
+
+configure-asan: conan-install-asan
+	$(RUN) cmake -S $(WORKSPACE) -B $(ASAN_BUILD_DIR) -G Ninja \
+	  -DCMAKE_TOOLCHAIN_FILE=$(ASAN_BUILD_DIR)/$(TOOLCHAIN_PATH) \
+	  -DCMAKE_BUILD_TYPE=Release \
+	  -DBUILD_TESTING=ON \
+	  -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined $(SANITIZER_FLAGS)" \
+	  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
 
 build-asan:
-	docker exec $(CONTAINER) bash -c "\
-	  conan install /src --profile /src/profiles/asan.conan --build=missing --output-folder=/build && \
-	  cmake -B /build -S /src -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=/build/conan_toolchain.cmake && \
-	  cmake --build /build"
+	$(RUN) cmake --build $(ASAN_BUILD_DIR)
+
+rebuild-asan: clean-asan configure-asan build-asan
+
+test-asan:
+	$(RUN) ctest --test-dir $(ASAN_BUILD_DIR) --output-on-failure
+
+test-one-asan:
+	@test -n "$(PATTERN)" || { echo "Usage: make test-one-asan PATTERN=pattern"; exit 1; }
+	$(RUN) ctest --test-dir $(ASAN_BUILD_DIR) --output-on-failure -R $(PATTERN)
+
+clean-asan:
+	$(RUN) rm -rf $(ASAN_BUILD_DIR)
+
+# -- ThreadSanitizer ----------------------------------------------------------
+
+conan-install-tsan:
+	$(call conan_install,$(TSAN_BUILD_DIR))
+
+configure-tsan: conan-install-tsan
+	$(RUN) cmake -S $(WORKSPACE) -B $(TSAN_BUILD_DIR) -G Ninja \
+	  -DCMAKE_TOOLCHAIN_FILE=$(TSAN_BUILD_DIR)/$(TOOLCHAIN_PATH) \
+	  -DCMAKE_BUILD_TYPE=Release \
+	  -DBUILD_TESTING=ON \
+	  -DCMAKE_CXX_FLAGS="-fsanitize=thread $(SANITIZER_FLAGS)" \
+	  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
 
 build-tsan:
-	docker exec $(CONTAINER) bash -c "\
-	  conan install /src --profile /src/profiles/tsan.conan --build=missing --output-folder=/build && \
-	  cmake -B /build -S /src -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=/build/conan_toolchain.cmake && \
-	  cmake --build /build"
+	$(RUN) cmake --build $(TSAN_BUILD_DIR)
 
-build-coverage:
-	docker exec $(CONTAINER) bash -c "\
-	  conan install /src --profile /src/profiles/gcov.conan --build=missing --output-folder=/build && \
-	  cmake -B /build -S /src -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=/build/conan_toolchain.cmake && \
-	  cmake --build /build && \
-	  cd /build && /build/iptables-manager && \
-	  gcovr --root /src --html --html-details -o /build/coverage.html"
+rebuild-tsan: clean-tsan configure-tsan build-tsan
+
+test-tsan:
+	$(RUN) ctest --test-dir $(TSAN_BUILD_DIR) --output-on-failure
+
+test-one-tsan:
+	@test -n "$(PATTERN)" || { echo "Usage: make test-one-tsan PATTERN=pattern"; exit 1; }
+	$(RUN) ctest --test-dir $(TSAN_BUILD_DIR) --output-on-failure -R $(PATTERN)
+
+clean-tsan:
+	$(RUN) rm -rf $(TSAN_BUILD_DIR)
+
+# -- Valgrind memcheck --------------------------------------------------------
+# No special compiler flags: Valgrind instruments the binary at run time. ctest -T memcheck wraps
+# every test in MEMORYCHECK_COMMAND; --error-exitcode=1 makes any finding fail the target.
+
+conan-install-valgrind:
+	$(call conan_install,$(VALGRIND_BUILD_DIR))
+
+configure-valgrind: conan-install-valgrind
+	$(RUN) cmake -S $(WORKSPACE) -B $(VALGRIND_BUILD_DIR) -G Ninja \
+	  -DCMAKE_TOOLCHAIN_FILE=$(VALGRIND_BUILD_DIR)/$(TOOLCHAIN_PATH) \
+	  -DCMAKE_BUILD_TYPE=Release \
+	  -DBUILD_TESTING=ON \
+	  -DCMAKE_CXX_FLAGS="$(SANITIZER_FLAGS)" \
+	  '-DMEMORYCHECK_COMMAND_OPTIONS=--leak-check=full --error-exitcode=1 --show-leak-kinds=all --track-origins=yes --num-callers=20'
 
 build-valgrind:
-	docker exec $(CONTAINER) bash -c "\
-	  conan install /src --profile /src/profiles/default.conan --build=missing --output-folder=/build && \
-	  cmake -B /build -S /src -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=/build/conan_toolchain.cmake && \
-	  cmake --build /build && \
-	  valgrind --leak-check=full --track-origins=yes /build/iptables-manager"
+	$(RUN) cmake --build $(VALGRIND_BUILD_DIR)
 
-build-tidy:
-	docker exec $(CONTAINER) bash -c "\
-	  conan install /src --profile /src/profiles/default.conan --build=missing --output-folder=/build && \
-	  cmake -B /build -S /src -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE=/build/conan_toolchain.cmake \
-	    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && \
-	  clang-tidy -p /build /src/main.cpp"
+rebuild-valgrind: clean-valgrind configure-valgrind build-valgrind
 
-build-format:
-	docker exec $(CONTAINER) bash -c "\
-	  find /src -name '*.cpp' -o -name '*.h' | grep -v end2end | \
-	  xargs clang-format --style=file -i"
+test-valgrind:
+	$(RUN) ctest --test-dir $(VALGRIND_BUILD_DIR) -T memcheck --output-on-failure
 
-.PHONY: up down enter rebuild build build-debug build-asan build-tsan build-coverage build-valgrind build-tidy build-format
+test-one-valgrind:
+	@test -n "$(PATTERN)" || { echo "Usage: make test-one-valgrind PATTERN=pattern"; exit 1; }
+	$(RUN) ctest --test-dir $(VALGRIND_BUILD_DIR) -T memcheck --output-on-failure -R $(PATTERN)
+
+clean-valgrind:
+	$(RUN) rm -rf $(VALGRIND_BUILD_DIR)
+
+# -- clang-format / clang-tidy ------------------------------------------------
+
+SOURCE_DIRS    := $(wildcard adapter_*)
+FORMAT_SOURCES := main.cpp $(if $(SOURCE_DIRS),$(shell find $(SOURCE_DIRS) -name '*.cpp' -o -name '*.h'))
+TIDY_SOURCES   := main.cpp $(if $(SOURCE_DIRS),$(shell find $(SOURCE_DIRS) -path '*/test' -prune -o -name '*.cpp' -print))
+
+format:
+	$(RUN) clang-format -i $(FORMAT_SOURCES)
+
+format-check:
+	$(RUN) clang-format --dry-run --Werror $(FORMAT_SOURCES)
+
+tidy:
+	$(RUN) clang-tidy -p $(BUILD_DIR) $(TIDY_SOURCES)
+
+tidy-fix:
+	$(RUN) clang-tidy -p $(BUILD_DIR) --fix --fix-errors $(TIDY_SOURCES)
+
+tidy-check:
+	$(RUN) clang-tidy -p $(BUILD_DIR) -warnings-as-errors='*' $(TIDY_SOURCES)
