@@ -149,3 +149,9 @@ make help                            # every target
 
 - No comments/docstrings in code unless requested; explain via names.
 - Do not commit unless asked. Branch before a PR.
+
+## Branching
+
+- Feature branches are cut from `develop` and squash-merged into `develop`.
+- For the first vertical slice everything lands on `develop`; `develop` merges into `master` only after the
+  slice is validated end to end by `EndToEnd` (hub `CLAUDE.md`, Working mode).
