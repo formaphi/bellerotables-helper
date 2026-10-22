@@ -1,6 +1,6 @@
 # iptables-manager
 
-Binario modular em C++11 para gerenciar regras de firewall iptables usando os headers da netfilter e as lib iptc, xtable e etc, substituindo os scripts Perl legados do NGFW (`omne-apply-firewall-input`, `omne-apply-firewall-redir`). Roda em AlmaLinux 8 (CentOS 7 ABI).
+Binario modular em C++23 para gerenciar regras de firewall iptables usando os headers da netfilter e as lib iptc, xtable e etc, substituindo os scripts Perl legados do NGFW (`omne-apply-firewall-input`, `omne-apply-firewall-redir`). Alvo: imagem Yocto `meta-bellerophon` (Scarthgap, kernel 6.6); o desenvolvimento roda no sandbox Ubuntu 24.04 (`sandbox/`).
 
 Cada dominio do firewall e exposto como um comando CLI:
 
@@ -23,12 +23,10 @@ Ring 4 (frameworks/drivers)  — framework/db-driver, framework/command-builder,
 ## Dependencias
 
 ```
-C++11, CMake 3.10+, Conan 2.x
-libpq/15.4        — PostgreSQL C client
-libiptc (ip4tc)   — API C para manipular regras iptables no kernel
-nlohmann_json/3.11.3 — JSON (header-only)
-gtest/1.10.0      — unit tests + gmock
-Python 3 + pytest — testes de caracterizacao
+C++23, CMake 3.28+, Conan 2.x, GCC 13
+gtest/1.14.0      — unit tests + gmock (Conan)
+libiptc (ip4tc)   — API C para manipular regras iptables no kernel (apt)
+libsystemd        — sd_listen_fds() para a ativacao por socket (apt)
 ```
 
 ## libiptc — Como funciona
@@ -96,8 +94,8 @@ Arquivos: `iptc_builder.h` (Match + RuleBuilder), `iptc_target.h` (hierarquia IT
 ### Armadilhas
 
 - Linkar com `ip4tc` (nao `iptc`)
-- AlmaLinux 8 usa nftables por default — CLI `iptables` nao enxerga tabelas legacy escritas por libiptc
-- `-fpermissive` necessario nos headers kernel do AlmaLinux 8 (cast void* em `ipt_get_target`)
+- As distros usam nftables por default — CLI `iptables` nao enxerga tabelas legacy escritas por libiptc sem `iptables-legacy` (o sandbox ja troca)
+- `-fpermissive` necessario nos headers do kernel (cast void* em `ipt_get_target`)
 - `hashlimit` exige `cfg.gc_interval > 0` (ex: 1000ms), kernel rejeita 0
 - `hashlimit` `cfg.avg` para `--hashlimit-upto`: `XT_HASHLIMIT_SCALE * seconds_per_unit / rate` (12/hour → `scale * 300`)
 - `xt_tcp` tem campos separados `spts[2]` e `dpts[2]` — nao confundir
@@ -106,9 +104,14 @@ Arquivos: `iptc_builder.h` (Match + RuleBuilder), `iptc_target.h` (hierarquia IT
 
 ### Ambiente Docker para desenvolvimento
 
+Todo build roda dentro do sandbox (`sandbox/`, Ubuntu 24.04). Detalhes em `CLAUDE.md` (Build System) e
+`docs/build/`.
+
 ```bash
-make up        # build image + start container
-make enter     # shell no container
-make down      # remove container
-make rebuild   # down + up
+make sandbox-build                    # imagem (pre-compila as deps do Conan)
+make rebuild                          # binario Release -> production-builds/release/
+make rebuild-unit && make test-unit   # testes + cobertura gcov
+make rebuild-asan && make test-asan   # testes com ASan + UBSan
+make sandbox-shell                    # shell no container
+make help                             # todos os targets
 ```

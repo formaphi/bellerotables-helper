@@ -1,12 +1,27 @@
+cmake_minimum_required(VERSION 3.28)
 
-cmake_minimum_required(VERSION 3.15)
-project(iptables-manager LANGUAGES CXX)
+project(
+    bellerotables-helper
+    DESCRIPTION "One-shot, socket-activated iptables helper for Bellerophon"
+    LANGUAGES CXX
+)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(PostgreSQL REQUIRED)
+include(CTest)
+
+option(ENABLE_COVERAGE "Enable gcov coverage instrumentation" OFF)
+
+if(ENABLE_COVERAGE AND NOT BUILD_TESTING)
+    message(WARNING "ENABLE_COVERAGE=ON has no effect when BUILD_TESTING=OFF.")
+endif()
+
+if(ENABLE_COVERAGE AND BUILD_TESTING)
+    message(STATUS "Coverage instrumentation enabled")
+    string(APPEND CMAKE_CXX_FLAGS " --coverage")
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " --coverage")
+endif()
 
 add_executable(iptables-manager main.cpp)
-target_link_libraries(iptables-manager PRIVATE PostgreSQL::PostgreSQL)

@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+echo "---- Sandbox image ----"
+make sandbox-build
+
+echo "---- Release build ----"
+make rebuild
+
+echo "---- Unit tests + gcov ----"
+make rebuild-unit
+make test-unit
+
+echo "---- AddressSanitizer + UBSan ----"
+make rebuild-asan
+make test-asan
+
+echo "---- Valgrind memcheck ----"
+make rebuild-valgrind
+make test-valgrind
+
+echo "All checks passed."
