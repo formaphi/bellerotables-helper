@@ -4,6 +4,10 @@ project(adapter_socket CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
+find_package(nlohmann_json REQUIRED)
+
 set(ADAPTER_SOCKET_HEADERS_DIR "${CMAKE_CURRENT_LIST_DIR}/include")
 set(ADAPTER_SOCKET_SOURCES_DIR "${CMAKE_CURRENT_LIST_DIR}/src")
 
@@ -22,6 +26,13 @@ add_library(adapter_socket
 target_include_directories(adapter_socket
     PUBLIC
         $<BUILD_INTERFACE:${ADAPTER_SOCKET_HEADERS_DIR}>
+)
+
+target_link_libraries(adapter_socket
+    PUBLIC
+        nlohmann_json::nlohmann_json
+    PRIVATE
+        PkgConfig::SYSTEMD
 )
 
 set_target_properties(adapter_socket

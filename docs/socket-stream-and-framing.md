@@ -144,6 +144,8 @@ reach many helpers concurrently.
 
 ## Related
 
+- [socket-roles.md](socket-roles.md) — the helper is the server, the agent the client, and why it does
+  not look like one.
 - Hub `docs/decisions/helper-socket-posix.md` — transport, activation, peer check, frame cap.
 - Hub `docs/decisions/agent-two-phase-delivery.md` — what the agent sends in each phase.
 - Reference adapter: `dnsproxy/socket_client` (`ISocketClient`), the UDP counterpart this design follows.

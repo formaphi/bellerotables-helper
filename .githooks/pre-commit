@@ -4,8 +4,14 @@ set -e
 echo "---- Sandbox image ----"
 make sandbox-build
 
+echo "---- clang-format ----"
+make format-check
+
 echo "---- Release build ----"
 make rebuild
+
+echo "---- clang-tidy (uses the release compile_commands.json) ----"
+make tidy-check
 
 echo "---- Unit tests + gcov ----"
 make rebuild-unit

@@ -8,6 +8,7 @@
 
 COMPOSE        := docker-compose -f sandbox/docker-compose.yml
 RUN            := $(COMPOSE) run --rm sandbox
+RUN_AS_HOST    := $(COMPOSE) run --rm --user $(shell id -u):$(shell id -g) sandbox
 WORKSPACE      := /workspace
 TEST_BUILDS    := /test-builds
 CONAN_PROFILE  := $(WORKSPACE)/profiles/gcc13.conan
@@ -220,13 +221,14 @@ clean-valgrind:
 	$(RUN) rm -rf $(VALGRIND_BUILD_DIR)
 
 # -- clang-format / clang-tidy ------------------------------------------------
+# Targets that rewrite sources run as the host user: root without CAP_DAC_OVERRIDE cannot write host files.
 
 SOURCE_DIRS    := $(wildcard adapter_*)
 FORMAT_SOURCES := main.cpp $(if $(SOURCE_DIRS),$(shell find $(SOURCE_DIRS) -name '*.cpp' -o -name '*.h'))
 TIDY_SOURCES   := main.cpp $(if $(SOURCE_DIRS),$(shell find $(SOURCE_DIRS) -path '*/test' -prune -o -name '*.cpp' -print))
 
 format:
-	$(RUN) clang-format -i $(FORMAT_SOURCES)
+	$(RUN_AS_HOST) clang-format -i $(FORMAT_SOURCES)
 
 format-check:
 	$(RUN) clang-format --dry-run --Werror $(FORMAT_SOURCES)
@@ -235,7 +237,7 @@ tidy:
 	$(RUN) clang-tidy -p $(BUILD_DIR) $(TIDY_SOURCES)
 
 tidy-fix:
-	$(RUN) clang-tidy -p $(BUILD_DIR) --fix --fix-errors $(TIDY_SOURCES)
+	$(RUN_AS_HOST) clang-tidy -p $(BUILD_DIR) --fix --fix-errors $(TIDY_SOURCES)
 
 tidy-check:
 	$(RUN) clang-tidy -p $(BUILD_DIR) -warnings-as-errors='*' $(TIDY_SOURCES)

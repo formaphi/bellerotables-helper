@@ -19,3 +19,6 @@ WarningsAsErrors: ''
 HeaderFilterRegex: '(adapter_iptc|adapter_socket)/include/.*'
 
 FormatStyle: file
+
+CheckOptions:
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true

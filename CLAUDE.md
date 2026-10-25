@@ -65,6 +65,12 @@ The helper is one-shot and socket-activated: `bellero-agent` sends it one reques
 Transport decided in hub `docs/decisions/helper-socket-posix.md`; delivery phases in
 `docs/decisions/agent-two-phase-delivery.md`. Why the wire is a length-prefixed stream, and how a Unix
 stream socket differs from UDP: [docs/socket-stream-and-framing.md](docs/socket-stream-and-framing.md).
+The helper is the socket **server** (systemd listens, the helper `accept()`s one connection) and the agent
+is the client: [docs/socket-roles.md](docs/socket-roles.md). The library's single entry is
+`ISocketEndpoint::acceptAuthorized()` (activation + accept + peer check → `IFramedConnection`), decided in
+[docs/socket-endpoint.md](docs/socket-endpoint.md) — accepted and implemented. Every fd is owned by a
+`FileDescriptor` and moves as `std::unique_ptr<IFileDescriptor>` from activation to listener to connection:
+[docs/socket-file-descriptor.md](docs/socket-file-descriptor.md).
 
 ### Wire
 
@@ -127,8 +133,8 @@ make help                            # every target
 - TSan aborts with `unexpected memory mapping` on hosts with `vm.mmap_rnd_bits=32` (Ubuntu 24.04 kernels);
   the container's seccomp profile blocks `setarch -R`. Run `sudo sysctl vm.mmap_rnd_bits=28` on the host
   before `make test-tsan`. No helper code is multithreaded yet, so TSan is out of the pre-commit hook.
-- `make setup` activates `.githooks/pre-commit` (sandbox image, release, unit, ASan, Valgrind). `format-check`
-  and `tidy-check` are not in the hook yet.
+- `make setup` activates `.githooks/pre-commit` (sandbox image, `format-check`, release, `tidy-check`, unit,
+  ASan, Valgrind). `format` and `tidy-fix` rewrite sources, so they run as the host user.
 - How each build type works and its pitfalls: `docs/build/` (asan, tsan, valgrind, gcov, clang-format,
   clang-tidy). Profiling with `perf` is deferred until a high-load E2E scenario exists; the options are in
   `docs/build/perf.md`.
@@ -141,7 +147,9 @@ make help                            # every target
 
 ### Dependencies
 
-- Conan: `gtest/1.14.0` (test requirement; GTest + GMock)
+- Conan: `nlohmann_json/3.11.3` (linked PUBLIC by `adapter_socket`; used by the parser next),
+  `gtest/1.14.0` (test requirement; GTest + GMock). Adding a Conan dependency needs `make sandbox-build`: the
+  image pre-builds the cache and `conan install` runs with `--no-remote`
 - System (apt, in the image): `libiptc-dev` (link `ip4tc`), `libxtables-dev`, `libsystemd-dev` (for
   `sd_listen_fds()`), legacy `iptables` as the default alternative
 - Coming with the parser: protobuf (version must match the `protoc` used by `contracts`)

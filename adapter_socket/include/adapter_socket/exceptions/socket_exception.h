@@ -24,6 +24,15 @@ public:
     }
 };
 
+class ActivationException final : public std::runtime_error
+{
+public:
+    explicit ActivationException(const std::string& message)
+        : std::runtime_error(message)
+    {
+    }
+};
+
 } // namespace adapter_socket
 
 #endif /* ADAPTER_SOCKET_EXCEPTIONS_SOCKET_EXCEPTION_H */
