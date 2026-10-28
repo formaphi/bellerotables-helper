@@ -70,7 +70,11 @@ is the client: [docs/socket-roles.md](docs/socket-roles.md). The library's singl
 `ISocketEndpoint::acceptAuthorized()` (activation + accept + peer check → `IFramedConnection`), decided in
 [docs/socket-endpoint.md](docs/socket-endpoint.md) — accepted and implemented. Every fd is owned by a
 `FileDescriptor` and moves as `std::unique_ptr<IFileDescriptor>` from activation to listener to connection:
-[docs/socket-file-descriptor.md](docs/socket-file-descriptor.md).
+[docs/socket-file-descriptor.md](docs/socket-file-descriptor.md). Where the raw POSIX calls (`getpwnam_r`,
+`recv`, `accept4`, …) should live — one small adapter interface per kind of syscall, **proposed, not
+implemented** — is in [docs/syscall-adapters.md](docs/syscall-adapters.md). The `LEARN` / `OPTIMIZE`
+annotations still in the sources, and the follow-up for each, are listed in
+[docs/socket-code-notes.md](docs/socket-code-notes.md).
 
 ### Wire
 
@@ -156,7 +160,16 @@ make help                            # every target
 
 ## Code style
 
-- No comments/docstrings in code unless requested; explain via names.
+- No explanatory comments/docstrings in code unless requested; explain via names.
+- The exception is [Todo Tree](https://github.com/Gruntfuggly/todo-tree) annotations: a comment that starts
+  with an uppercase tag and a colon, so the editor lists it in the tree. Tags in use:
+  - `TODO:` work still to do
+  - `FIXME:` known defect to fix
+  - `OPTIMIZE:` works as is, but has a better design to adopt later
+  - `LEARN:` a note for the author about an API or concept
+  Write the annotation as a `//` line, or a `/* TAG: ... */` block when it needs several lines, with the tag on
+  the first line. Record where the follow-up lives (a `docs/` file) in
+  [docs/socket-code-notes.md](docs/socket-code-notes.md), and remove `LEARN:` notes before merging into `develop`.
 - Do not commit unless asked. Branch before a PR.
 
 ## Branching

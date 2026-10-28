@@ -41,6 +41,11 @@ std::vector<uint8_t> UnixSocketConnection::readExactly(std::size_t byteCount,
         if (result == SYSCALL_ERROR)
         {
             const int savedErrno = errno;
+            /*OPTIMIZE:
+             * We can create a proper error handling here
+             * We could create a syscall handler for those implementations,
+             * instead create Syscall interpretation for each situation
+             */
             const bool wouldBlock = savedErrno == EAGAIN || savedErrno == EWOULDBLOCK;
             if (wouldBlock)
             {

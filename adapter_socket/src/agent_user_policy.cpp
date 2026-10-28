@@ -43,14 +43,22 @@ std::optional<uint32_t> AgentUserPolicy::resolveUserId(const std::string& userNa
     int lookupResult = GETPWNAM_SUCCESS;
     while (true)
     {
-        lookupResult = ::getpwnam_r(userName.c_str(), &entry, buffer.data(), buffer.size(), &found);
-        const bool bufferTooSmall =
-            lookupResult == ERANGE && buffer.size() < MAX_PASSWORD_BUFFER_BYTES;
-        if (!bufferTooSmall)
-        {
-            break;
-        }
-        buffer.resize(buffer.size() * BUFFER_GROWTH_FACTOR);
+
+      lookupResult = ::getpwnam_r(userName.c_str(), &entry, buffer.data(), buffer.size(), &found);
+      /*LEARN: 
+        * getpwnam_r looks up the agent's uid in the system user database (NSS, usually /etc/passwd).
+        * The caller supplies the memory for the result strings.
+        * ERANGE here means the buffer is too small for the result.
+        * The needed size is unknown beforehand, and sysconf only suggests a starting size.
+        * So the loop doubles the buffer and retries, up to a cap.
+      */
+      const bool bufferTooSmall =
+          lookupResult == ERANGE && buffer.size() < MAX_PASSWORD_BUFFER_BYTES;
+      if (!bufferTooSmall)
+      {
+          break;
+      }
+      buffer.resize(buffer.size() * BUFFER_GROWTH_FACTOR);
     }
 
     if (lookupResult != GETPWNAM_SUCCESS || found == nullptr)
