@@ -59,6 +59,56 @@ Future improvement, **not in the current slice**. Cross-cutting strategy owned b
   The generated classes are the pact, the compiler is the verifier. The helper validates nothing at
   runtime — it trusts input already validated by the API upstream.
 
+## Socket Endpoint (agent → helper)
+
+The helper is one-shot and socket-activated: `bellero-agent` sends it one request per activation.
+Transport decided in hub `docs/decisions/helper-socket-posix.md`; delivery phases in
+`docs/decisions/agent-two-phase-delivery.md`. Why the wire is a length-prefixed stream, and how a Unix
+stream socket differs from UDP: [docs/socket-stream-and-framing.md](docs/socket-stream-and-framing.md).
+The helper is the socket **server** (systemd listens, the helper `accept()`s one connection) and the agent
+is the client: [docs/socket-roles.md](docs/socket-roles.md). The library's single entry is
+`ISocketEndpoint::acceptAuthorized()` (activation + accept + peer check → `IFramedConnection`), decided in
+[docs/socket-endpoint.md](docs/socket-endpoint.md) — accepted and implemented. Every fd is owned by a
+`FileDescriptor` and moves as `std::unique_ptr<IFileDescriptor>` from activation to listener to connection:
+[docs/socket-file-descriptor.md](docs/socket-file-descriptor.md). Where the raw POSIX calls (`getpwnam_r`,
+`recv`, `accept4`, …) should live — one small adapter interface per kind of syscall, **proposed, not
+implemented** — is in [docs/syscall-adapters.md](docs/syscall-adapters.md). The `LEARN` / `OPTIMIZE`
+annotations still in the sources, and the follow-up for each, are listed in
+[docs/socket-code-notes.md](docs/socket-code-notes.md).
+
+### Wire
+
+- systemd `.socket` unit: `ListenStream=/run/bellerophon/bellerotables-helper.sock`, `Accept=no`,
+  `SocketMode=0660`, agent's group
+- Helper takes the listening fd with `sd_listen_fds()` (libsystemd), `accept()`s **exactly one**
+  connection, serves it, exits — pending connections stay in the backlog for the next activation
+- `SO_PEERCRED` on the accepted connection — refuse any uid other than the agent's. The agent's user
+  comes from `/etc/bellerophon/bellerotables-helper.conf` (`agent_user=bellero-agent`, `root:root 0644`),
+  resolved with `getpwnam()` at startup; missing file or unknown user refuses every connection
+- `SOCK_STREAM`, frame = 4-byte unsigned big-endian length + payload; frames above 64 KiB are rejected
+  before reading the payload
+- Payload: canonical protobuf JSON of `{correlation_id, id, desired}`
+- Phase 1: no reply, close after handling. Phase 2: one reply frame on the same connection, then close
+
+Not ZeroMQ: libzmq accepts on its own I/O thread, so a one-shot exit can drop a second queued request.
+Not `SOCK_SEQPACKET`: Java's Unix-domain sockets are stream-only.
+
+### Components
+
+| Component | Ring | Responsibility |
+|-----------|------|----------------|
+| Socket lib (`adapter_socket/`) | 4 | activation fd, single `accept()`, peer-credential check, length-prefixed read/write; RAII fds, errno → exception |
+| Parser | 3 | protobuf facade (hub `protobuf-consumer-facade.md`): JSON → generated message → protovalidate → clean domain type. Outgoing (reply) serialization arrives in phase 2 |
+| Controller | 3 | reads one frame, parses, calls the use case, which drives `adapter_iptc`; maps failures to the reply (phase 2) |
+
+```
+systemd fd → socket lib (Ring 4) → controller (Ring 3) → parser (Ring 3)
+                                        ↓
+                                   UseCase (Ring 2) → MangleAdapter (adapter_iptc)
+```
+
+Build order: socket lib → parser (incoming) → controller → reply path (phase 2).
+
 ## Build
 
 C++23, CMake 3.28+, Conan 2.x, GCC 13 (same major as Yocto Scarthgap; `std::expected` needs 12+). Every
@@ -87,8 +137,8 @@ make help                            # every target
 - TSan aborts with `unexpected memory mapping` on hosts with `vm.mmap_rnd_bits=32` (Ubuntu 24.04 kernels);
   the container's seccomp profile blocks `setarch -R`. Run `sudo sysctl vm.mmap_rnd_bits=28` on the host
   before `make test-tsan`. No helper code is multithreaded yet, so TSan is out of the pre-commit hook.
-- `make setup` activates `.githooks/pre-commit` (sandbox image, release, unit, ASan, Valgrind). `format-check`
-  and `tidy-check` are not in the hook yet.
+- `make setup` activates `.githooks/pre-commit` (sandbox image, `format-check`, release, `tidy-check`, unit,
+  ASan, Valgrind). `format` and `tidy-fix` rewrite sources, so they run as the host user.
 - How each build type works and its pitfalls: `docs/build/` (asan, tsan, valgrind, gcov, clang-format,
   clang-tidy). Profiling with `perf` is deferred until a high-load E2E scenario exists; the options are in
   `docs/build/perf.md`.
@@ -101,14 +151,21 @@ make help                            # every target
 
 ### Dependencies
 
-- Conan: `gtest/1.14.0` (test requirement; GTest + GMock)
+- Conan: `nlohmann_json/3.11.3` (linked PUBLIC by `adapter_socket`; used by the parser next),
+  `gtest/1.14.0` (test requirement; GTest + GMock). Adding a Conan dependency needs `make sandbox-build`: the
+  image pre-builds the cache and `conan install` runs with `--no-remote`
 - System (apt, in the image): `libiptc-dev` (link `ip4tc`), `libxtables-dev`, `libsystemd-dev` (for
   `sd_listen_fds()`), legacy `iptables` as the default alternative
 - Coming with the parser: protobuf (version must match the `protoc` used by `contracts`)
 
 ## Code style
 
-- No comments/docstrings in code unless requested; explain via names.
+- Comments are allowed, but every comment must start with a comment modifier: `BUG`, `COMPLEX`, `FIXME`, `HACK`,
+  `LEARN`, `OPTIMIZE`, `REVIEW` or `TODO`, followed by a colon and a description. The modifiers and their meanings
+  are defined in the hub `CLAUDE.md` (Comment modifiers); do not redefine them here.
+- The modifiers are what [Todo Tree](https://github.com/Gruntfuggly/todo-tree) lists in the editor. Write the
+  comment as a `//` line, or a `/* MODIFIER: ... */` block when it needs several lines, with the modifier on the
+  first line. Modifier comments stay in the code when merging into `develop`.
 - Do not commit unless asked. Branch before a PR.
 
 ## Branching

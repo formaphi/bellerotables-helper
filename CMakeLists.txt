@@ -24,4 +24,6 @@ if(ENABLE_COVERAGE AND BUILD_TESTING)
     string(APPEND CMAKE_EXE_LINKER_FLAGS " --coverage")
 endif()
 
+add_subdirectory(adapter_socket)
+
 add_executable(iptables-manager main.cpp)
