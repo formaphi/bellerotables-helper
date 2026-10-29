@@ -7,6 +7,7 @@ class BellerotablesHelper(ConanFile):
     generators = "CMakeDeps"
 
     def requirements(self):
+        self.requires("nlohmann_json/3.11.3")
         self.test_requires("gtest/1.14.0")
 
     def layout(self):
