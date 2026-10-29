@@ -10,7 +10,7 @@ namespace adapter_socket {
 
 struct AcceptedConnectionDto
 {
-    std::shared_ptr<ISocketConnection> connection;
+    std::unique_ptr<ISocketConnection> connection;
     PeerCredentials peer;
 };
 

@@ -124,14 +124,17 @@ public:
 TEST(FramedConnectionTest, RoundTripReturnsWrittenPayload)
 {
     const std::vector<uint8_t> payload{'h', 'e', 'l', 'l', 'o'};
-    auto writerSide =
-        std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
-    adapter_socket::FramedConnection writer(writerSide, STEADY_DEADLINES, FRAME_TIMEOUT);
+    auto ownedWriterSide =
+        std::make_unique<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    const FakeSocketConnection* const writerSide = ownedWriterSide.get();
+    adapter_socket::FramedConnection writer(std::move(ownedWriterSide), STEADY_DEADLINES,
+                                            FRAME_TIMEOUT);
     writer.writeFrame(payload);
 
-    auto readerSide =
-        std::make_shared<FakeSocketConnection>(writerSide->written(), WHOLE_FRAME_CHUNK_BYTES);
-    adapter_socket::FramedConnection reader(readerSide, STEADY_DEADLINES, FRAME_TIMEOUT);
+    auto ownedReaderSide =
+        std::make_unique<FakeSocketConnection>(writerSide->written(), WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection reader(std::move(ownedReaderSide), STEADY_DEADLINES,
+                                            FRAME_TIMEOUT);
 
     EXPECT_EQ(reader.readFrame(), payload);
 }
@@ -139,9 +142,11 @@ TEST(FramedConnectionTest, RoundTripReturnsWrittenPayload)
 TEST(FramedConnectionTest, HeaderForLength258IsBigEndian)
 {
     const std::vector<uint8_t> payload(TWO_BYTE_LENGTH_PAYLOAD_BYTES, PAYLOAD_FILL_BYTE);
-    auto writerSide =
-        std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
-    adapter_socket::FramedConnection writer(writerSide, STEADY_DEADLINES, FRAME_TIMEOUT);
+    auto ownedWriterSide =
+        std::make_unique<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    const FakeSocketConnection* const writerSide = ownedWriterSide.get();
+    adapter_socket::FramedConnection writer(std::move(ownedWriterSide), STEADY_DEADLINES,
+                                            FRAME_TIMEOUT);
 
     writer.writeFrame(payload);
 
@@ -156,25 +161,30 @@ TEST(FramedConnectionTest, HeaderForLength258IsBigEndian)
 
 TEST(FramedConnectionTest, ZeroLengthFrameRoundTrips)
 {
-    auto writerSide =
-        std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
-    adapter_socket::FramedConnection writer(writerSide, STEADY_DEADLINES, FRAME_TIMEOUT);
+    auto ownedWriterSide =
+        std::make_unique<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    const FakeSocketConnection* const writerSide = ownedWriterSide.get();
+    adapter_socket::FramedConnection writer(std::move(ownedWriterSide), STEADY_DEADLINES,
+                                            FRAME_TIMEOUT);
     writer.writeFrame(std::vector<uint8_t>());
 
     EXPECT_EQ(writerSide->written(), HEADER_FOR_EMPTY_PAYLOAD);
 
-    auto readerSide =
-        std::make_shared<FakeSocketConnection>(writerSide->written(), WHOLE_FRAME_CHUNK_BYTES);
-    adapter_socket::FramedConnection reader(readerSide, STEADY_DEADLINES, FRAME_TIMEOUT);
+    auto ownedReaderSide =
+        std::make_unique<FakeSocketConnection>(writerSide->written(), WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection reader(std::move(ownedReaderSide), STEADY_DEADLINES,
+                                            FRAME_TIMEOUT);
 
     EXPECT_TRUE(reader.readFrame().empty());
 }
 
 TEST(FramedConnectionTest, DeclaredLengthAboveMaximumThrowsWithoutReadingPayload)
 {
-    auto readerSide =
-        std::make_shared<FakeSocketConnection>(HEADER_ABOVE_MAXIMUM, WHOLE_FRAME_CHUNK_BYTES);
-    adapter_socket::FramedConnection reader(readerSide, STEADY_DEADLINES, FRAME_TIMEOUT);
+    auto ownedReaderSide =
+        std::make_unique<FakeSocketConnection>(HEADER_ABOVE_MAXIMUM, WHOLE_FRAME_CHUNK_BYTES);
+    const FakeSocketConnection* const readerSide = ownedReaderSide.get();
+    adapter_socket::FramedConnection reader(std::move(ownedReaderSide), STEADY_DEADLINES,
+                                            FRAME_TIMEOUT);
 
     EXPECT_THROW(reader.readFrame(), adapter_socket::FrameTooLargeException);
     EXPECT_EQ(readerSide->readRequests(),
@@ -183,9 +193,11 @@ TEST(FramedConnectionTest, DeclaredLengthAboveMaximumThrowsWithoutReadingPayload
 
 TEST(FramedConnectionTest, WriteFrameAboveMaximumThrowsAndWritesNothing)
 {
-    auto writerSide =
-        std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
-    adapter_socket::FramedConnection writer(writerSide, STEADY_DEADLINES, FRAME_TIMEOUT);
+    auto ownedWriterSide =
+        std::make_unique<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    const FakeSocketConnection* const writerSide = ownedWriterSide.get();
+    adapter_socket::FramedConnection writer(std::move(ownedWriterSide), STEADY_DEADLINES,
+                                            FRAME_TIMEOUT);
     const std::size_t tooLargeBytes =
         adapter_socket::FrameHeaderDto::MAX_PAYLOAD_BYTES + BYTES_ABOVE_MAXIMUM;
     const std::vector<uint8_t> tooLarge(tooLargeBytes, ZERO_FILL_BYTE);
@@ -196,9 +208,11 @@ TEST(FramedConnectionTest, WriteFrameAboveMaximumThrowsAndWritesNothing)
 
 TEST(FramedConnectionTest, FrameDeliveredOneByteAtATimeIsAssembled)
 {
-    auto readerSide =
-        std::make_shared<FakeSocketConnection>(THREE_BYTE_FRAME, ONE_BYTE_CHUNK_BYTES);
-    adapter_socket::FramedConnection reader(readerSide, STEADY_DEADLINES, FRAME_TIMEOUT);
+    auto ownedReaderSide =
+        std::make_unique<FakeSocketConnection>(THREE_BYTE_FRAME, ONE_BYTE_CHUNK_BYTES);
+    const FakeSocketConnection* const readerSide = ownedReaderSide.get();
+    adapter_socket::FramedConnection reader(std::move(ownedReaderSide), STEADY_DEADLINES,
+                                            FRAME_TIMEOUT);
 
     EXPECT_EQ(reader.readFrame(), THREE_BYTE_PAYLOAD);
     EXPECT_EQ(readerSide->deliveredChunkSizes(),
@@ -207,47 +221,49 @@ TEST(FramedConnectionTest, FrameDeliveredOneByteAtATimeIsAssembled)
 
 TEST(FramedConnectionTest, EndOfStreamInsidePayloadThrowsConnectionClosed)
 {
-    auto readerSide =
-        std::make_shared<FakeSocketConnection>(FRAME_CUT_INSIDE_PAYLOAD, WHOLE_FRAME_CHUNK_BYTES);
-    adapter_socket::FramedConnection reader(readerSide, STEADY_DEADLINES, FRAME_TIMEOUT);
+    auto ownedReaderSide =
+        std::make_unique<FakeSocketConnection>(FRAME_CUT_INSIDE_PAYLOAD, WHOLE_FRAME_CHUNK_BYTES);
+    adapter_socket::FramedConnection reader(std::move(ownedReaderSide), STEADY_DEADLINES,
+                                            FRAME_TIMEOUT);
 
     EXPECT_THROW(reader.readFrame(), adapter_socket::ConnectionClosedException);
 }
 
 TEST(FramedConnectionTest, ShortHeaderThrowsConnectionClosedWithoutIndexingPastEnd)
 {
-    auto readerSide = std::make_shared<TruncatedHeaderConnection>();
-    adapter_socket::FramedConnection reader(readerSide, STEADY_DEADLINES, FRAME_TIMEOUT);
+    adapter_socket::FramedConnection reader(std::make_unique<TruncatedHeaderConnection>(),
+                                            STEADY_DEADLINES, FRAME_TIMEOUT);
 
     EXPECT_THROW(reader.readFrame(), adapter_socket::ConnectionClosedException);
 }
 
 TEST(FramedConnectionTest, ReadFrameOpensOneDeadlineForHeaderAndPayload)
 {
-    auto readerSide =
-        std::make_shared<FakeSocketConnection>(THREE_BYTE_FRAME, WHOLE_FRAME_CHUNK_BYTES);
+    auto ownedReaderSide =
+        std::make_unique<FakeSocketConnection>(THREE_BYTE_FRAME, WHOLE_FRAME_CHUNK_BYTES);
     const auto deadlines = std::make_shared<MockDeadlineFactory>();
     EXPECT_CALL(*deadlines, startingNow(FRAME_TIMEOUT))
         .Times(1)
         .WillOnce([](std::chrono::milliseconds) -> std::unique_ptr<adapter_socket::IDeadline> {
             return std::make_unique<MockDeadline>();
         });
-    adapter_socket::FramedConnection reader(readerSide, deadlines, FRAME_TIMEOUT);
+    adapter_socket::FramedConnection reader(std::move(ownedReaderSide), deadlines, FRAME_TIMEOUT);
 
     EXPECT_EQ(reader.readFrame(), THREE_BYTE_PAYLOAD);
 }
 
 TEST(FramedConnectionTest, WriteFrameOpensOneDeadline)
 {
-    auto writerSide =
-        std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    auto ownedWriterSide =
+        std::make_unique<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    const FakeSocketConnection* const writerSide = ownedWriterSide.get();
     const auto deadlines = std::make_shared<MockDeadlineFactory>();
     EXPECT_CALL(*deadlines, startingNow(FRAME_TIMEOUT))
         .Times(1)
         .WillOnce([](std::chrono::milliseconds) -> std::unique_ptr<adapter_socket::IDeadline> {
             return std::make_unique<MockDeadline>();
         });
-    adapter_socket::FramedConnection writer(writerSide, deadlines, FRAME_TIMEOUT);
+    adapter_socket::FramedConnection writer(std::move(ownedWriterSide), deadlines, FRAME_TIMEOUT);
 
     writer.writeFrame(THREE_BYTE_PAYLOAD);
 
@@ -256,11 +272,11 @@ TEST(FramedConnectionTest, WriteFrameOpensOneDeadline)
 
 TEST(FramedConnectionTest, WriteFrameAboveMaximumOpensNoDeadline)
 {
-    auto writerSide =
-        std::make_shared<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
+    auto ownedWriterSide =
+        std::make_unique<FakeSocketConnection>(std::vector<uint8_t>(), WHOLE_FRAME_CHUNK_BYTES);
     const auto deadlines = std::make_shared<MockDeadlineFactory>();
     EXPECT_CALL(*deadlines, startingNow(_)).Times(0);
-    adapter_socket::FramedConnection writer(writerSide, deadlines, FRAME_TIMEOUT);
+    adapter_socket::FramedConnection writer(std::move(ownedWriterSide), deadlines, FRAME_TIMEOUT);
     const std::size_t tooLargeBytes =
         adapter_socket::FrameHeaderDto::MAX_PAYLOAD_BYTES + BYTES_ABOVE_MAXIMUM;
     const std::vector<uint8_t> tooLarge(tooLargeBytes, ZERO_FILL_BYTE);

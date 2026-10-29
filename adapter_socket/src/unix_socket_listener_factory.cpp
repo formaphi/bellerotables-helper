@@ -4,10 +4,10 @@
 
 namespace adapter_socket {
 
-std::shared_ptr<ISocketListener> UnixSocketListenerFactory::create(
+std::unique_ptr<ISocketListener> UnixSocketListenerFactory::create(
     std::unique_ptr<IFileDescriptor> listeningFd) const
 {
-    return std::make_shared<UnixSocketListener>(std::move(listeningFd));
+    return std::make_unique<UnixSocketListener>(std::move(listeningFd));
 }
 
 } // namespace adapter_socket

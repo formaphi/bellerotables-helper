@@ -9,7 +9,7 @@ namespace adapter_socket {
 class MockSocketListenerFactory : public ISocketListenerFactory
 {
 public:
-    MOCK_METHOD(std::shared_ptr<ISocketListener>, create,
+    MOCK_METHOD(std::unique_ptr<ISocketListener>, create,
                 (std::unique_ptr<IFileDescriptor> listeningFd), (const, override));
 };
 

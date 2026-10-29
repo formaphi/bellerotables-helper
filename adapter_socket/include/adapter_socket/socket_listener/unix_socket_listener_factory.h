@@ -20,7 +20,7 @@ public:
     UnixSocketListenerFactory(UnixSocketListenerFactory&&) = delete;
     UnixSocketListenerFactory& operator=(UnixSocketListenerFactory&&) = delete;
 
-    [[nodiscard]] std::shared_ptr<ISocketListener> create(
+    [[nodiscard]] std::unique_ptr<ISocketListener> create(
         std::unique_ptr<IFileDescriptor> listeningFd) const override;
 };
 

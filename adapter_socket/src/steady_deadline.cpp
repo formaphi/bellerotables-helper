@@ -32,7 +32,8 @@ std::chrono::milliseconds::rep SteadyDeadline::remainingMilliseconds() const
 {
     const std::chrono::steady_clock::duration untilExpiry =
         m_expiresAt - std::chrono::steady_clock::now();
-    // ceil, not floor: a truncated poll timeout wakes before the deadline and the loop spins.
+    // LEARN: ceil, not floor: a truncated poll timeout wakes before the deadline and the loop
+    // spins.
     return std::chrono::ceil<std::chrono::milliseconds>(untilExpiry).count();
 }
 

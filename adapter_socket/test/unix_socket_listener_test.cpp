@@ -187,14 +187,14 @@ TEST_F(UnixSocketListenerTest, AcceptedConnectionCarriesFramedPayloadFromClient)
         deadlineFactory->startingNow(DEFAULT_TEST_TIMEOUT);
     const int clientFd = connectToListener(m_socketPath);
     std::unique_ptr<IFileDescriptor> ownedClientFd = std::make_unique<FileDescriptor>(clientFd);
-    std::shared_ptr<ISocketConnection> clientConnection =
-        std::make_shared<UnixSocketConnection>(std::move(ownedClientFd));
+    std::unique_ptr<ISocketConnection> clientConnection =
+        std::make_unique<UnixSocketConnection>(std::move(ownedClientFd));
     FramedConnection clientFramed(std::move(clientConnection), deadlineFactory, FRAME_TIMEOUT);
     const std::vector<uint8_t> payload(ROUND_TRIP_PAYLOAD_BYTES, ROUND_TRIP_PAYLOAD_BYTE);
     clientFramed.writeFrame(payload);
 
-    const AcceptedConnectionDto accepted = listener.acceptOne(*acceptDeadline);
-    FramedConnection serverFramed(accepted.connection, deadlineFactory, FRAME_TIMEOUT);
+    AcceptedConnectionDto accepted = listener.acceptOne(*acceptDeadline);
+    FramedConnection serverFramed(std::move(accepted.connection), deadlineFactory, FRAME_TIMEOUT);
     const std::vector<uint8_t> received = serverFramed.readFrame();
     EXPECT_EQ(received, payload);
 }

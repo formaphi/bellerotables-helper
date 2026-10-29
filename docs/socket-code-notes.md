@@ -24,6 +24,7 @@ check in `readExactly`. No behavior change.
 |-------|------------------|
 | `file_descriptor.cpp`, after `::poll` | `poll` suspends the thread until the fd is ready for the requested operation or the timeout expires. Here it waits for one fd to become readable or writable, depending on `Readiness`. |
 | `systemd_activation.cpp`, `enableNonBlocking` | `fcntl` reads and changes the file status flags of an fd. Here it turns on non-blocking mode. |
+| `unix_socket_connection.cpp`, `writeAll` | `MSG_DONTWAIT` keeps each `send` from blocking past the deadline, because the accepted fd is blocking and `POLLOUT` does not guarantee room for every byte. `MSG_NOSIGNAL` turns a write to a closed peer into `EPIPE` instead of a `SIGPIPE` that kills the process. |
 
 ## Explanatory comments about `errno`
 

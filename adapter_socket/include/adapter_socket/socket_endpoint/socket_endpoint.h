@@ -19,7 +19,7 @@ class SocketEndpoint final : public ISocketEndpoint
 public:
     SocketEndpoint(const std::shared_ptr<ISocketActivation>& activation,
                    const std::shared_ptr<ISocketListenerFactory>& listenerFactory,
-                   std::shared_ptr<IPeerPolicy> peerPolicy,
+                   std::unique_ptr<IPeerPolicy> peerPolicy,
                    std::shared_ptr<IDeadlineFactory> deadlineFactory,
                    const SocketTimeoutsDto& timeouts = SocketTimeoutsDto());
     ~SocketEndpoint() override = default;
@@ -29,15 +29,15 @@ public:
     SocketEndpoint(SocketEndpoint&&) = delete;
     SocketEndpoint& operator=(SocketEndpoint&&) = delete;
 
-    std::optional<std::shared_ptr<IFramedConnection>> acceptAuthorized() override;
+    std::optional<std::unique_ptr<IFramedConnection>> acceptAuthorized() override;
 
 private:
-    static std::shared_ptr<ISocketListener> createListener(
+    static std::unique_ptr<ISocketListener> createListener(
         const std::shared_ptr<ISocketActivation>& activation,
         const std::shared_ptr<ISocketListenerFactory>& listenerFactory);
 
-    std::shared_ptr<ISocketListener> m_listener;
-    std::shared_ptr<IPeerPolicy> m_peerPolicy;
+    std::unique_ptr<ISocketListener> m_listener;
+    std::unique_ptr<IPeerPolicy> m_peerPolicy;
     std::shared_ptr<IDeadlineFactory> m_deadlineFactory;
     SocketTimeoutsDto m_timeouts;
 };

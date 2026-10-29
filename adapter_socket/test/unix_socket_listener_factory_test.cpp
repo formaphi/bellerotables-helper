@@ -77,7 +77,7 @@ TEST_F(UnixSocketListenerFactoryTest, CreatesListener)
 
     std::unique_ptr<IFileDescriptor> ownedListeningFd =
         std::make_unique<FileDescriptor>(listeningFd);
-    const std::shared_ptr<adapter_socket::ISocketListener> listener =
+    const std::unique_ptr<adapter_socket::ISocketListener> listener =
         factory.create(std::move(ownedListeningFd));
 
     EXPECT_NE(listener.get(), nullptr);

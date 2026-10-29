@@ -7,7 +7,7 @@
 
 namespace adapter_socket {
 
-FramedConnection::FramedConnection(std::shared_ptr<ISocketConnection> connection,
+FramedConnection::FramedConnection(std::unique_ptr<ISocketConnection> connection,
                                    std::shared_ptr<IDeadlineFactory> deadlineFactory,
                                    std::chrono::milliseconds frameTimeout)
     : m_connection(std::move(connection))

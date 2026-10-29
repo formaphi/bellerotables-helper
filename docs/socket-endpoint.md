@@ -23,7 +23,7 @@ controller should not need to know.
 1. **`ISocketEndpoint` is the library's single entry.** One method, `acceptAuthorized()`, runs activation,
    accept and the peer check, and returns the exit, an `IFramedConnection`.
 2. **A refused peer is an empty `std::optional`**, not an exception:
-   `std::optional<std::shared_ptr<IFramedConnection>>`. A non-empty optional never holds a `nullptr`.
+   `std::optional<std::unique_ptr<IFramedConnection>>`. A non-empty optional never holds a `nullptr`.
 3. **Activation is injected into the endpoint** through a new interface, `ISocketActivation`, implemented
    by `SystemdActivation` (its `takeListeningFd()` stops being `static`).
 4. **The endpoint builds its listener through a factory**, `ISocketListenerFactory`, implemented by
@@ -39,7 +39,7 @@ class ISocketEndpoint
 public:
     virtual ~ISocketEndpoint() = default;
 
-    virtual std::optional<std::shared_ptr<IFramedConnection>> acceptAuthorized() = 0;
+    virtual std::optional<std::unique_ptr<IFramedConnection>> acceptAuthorized() = 0;
 };
 
 class ISocketActivation
@@ -55,7 +55,7 @@ class ISocketListenerFactory
 public:
     virtual ~ISocketListenerFactory() = default;
 
-    [[nodiscard]] virtual std::shared_ptr<ISocketListener>
+    [[nodiscard]] virtual std::unique_ptr<ISocketListener>
     create(std::unique_ptr<IFileDescriptor> listeningFd) const = 0;
 };
 ```
@@ -109,7 +109,7 @@ acceptAuthorized()
   ├─ m_peerPolicy->isAllowed(accepted.peer)
   │     ├─ false → return std::nullopt             connection is released → fd closed → agent sees EOF
   │     └─ true  ↓
-  └─ return std::make_shared<FramedConnection>(accepted.connection, m_deadlineFactory, connectionTimeout)
+  └─ return std::make_unique<FramedConnection>(std::move(accepted.connection), m_deadlineFactory, connectionTimeout)
 ```
 
 Failures that are not a refused peer still throw: accept timeout or syscall error (`std::system_error`).
@@ -140,7 +140,7 @@ class SocketEndpoint final : public ISocketEndpoint
 public:
     SocketEndpoint(const std::shared_ptr<ISocketActivation>& activation,
                    const std::shared_ptr<ISocketListenerFactory>& listenerFactory,
-                   std::shared_ptr<IPeerPolicy> peerPolicy,
+                   std::unique_ptr<IPeerPolicy> peerPolicy,
                    std::shared_ptr<IDeadlineFactory> deadlineFactory,
                    const SocketTimeoutsDto& timeouts = SocketTimeoutsDto());
     ~SocketEndpoint() override = default;
@@ -150,15 +150,15 @@ public:
     SocketEndpoint(SocketEndpoint&&) = delete;
     SocketEndpoint& operator=(SocketEndpoint&&) = delete;
 
-    std::optional<std::shared_ptr<IFramedConnection>> acceptAuthorized() override;
+    std::optional<std::unique_ptr<IFramedConnection>> acceptAuthorized() override;
 
 private:
-    static std::shared_ptr<ISocketListener>
+    static std::unique_ptr<ISocketListener>
     createListener(const std::shared_ptr<ISocketActivation>& activation,
                    const std::shared_ptr<ISocketListenerFactory>& listenerFactory);
 
-    std::shared_ptr<ISocketListener> m_listener;
-    std::shared_ptr<IPeerPolicy> m_peerPolicy;
+    std::unique_ptr<ISocketListener> m_listener;
+    std::unique_ptr<IPeerPolicy> m_peerPolicy;
     std::shared_ptr<IDeadlineFactory> m_deadlineFactory;
     SocketTimeoutsDto m_timeouts;
 };
@@ -167,7 +167,7 @@ private:
 ```cpp
 SocketEndpoint::SocketEndpoint(const std::shared_ptr<ISocketActivation>& activation,
                                const std::shared_ptr<ISocketListenerFactory>& listenerFactory,
-                               std::shared_ptr<IPeerPolicy> peerPolicy,
+                               std::unique_ptr<IPeerPolicy> peerPolicy,
                                std::shared_ptr<IDeadlineFactory> deadlineFactory,
                                const SocketTimeoutsDto& timeouts)
     : m_listener(createListener(activation, listenerFactory))
@@ -177,7 +177,7 @@ SocketEndpoint::SocketEndpoint(const std::shared_ptr<ISocketActivation>& activat
 {
 }
 
-std::shared_ptr<ISocketListener>
+std::unique_ptr<ISocketListener>
 SocketEndpoint::createListener(const std::shared_ptr<ISocketActivation>& activation,
                                const std::shared_ptr<ISocketListenerFactory>& listenerFactory)
 {
@@ -185,17 +185,17 @@ SocketEndpoint::createListener(const std::shared_ptr<ISocketActivation>& activat
     return listenerFactory->create(std::move(listeningFd));
 }
 
-std::optional<std::shared_ptr<IFramedConnection>> SocketEndpoint::acceptAuthorized()
+std::optional<std::unique_ptr<IFramedConnection>> SocketEndpoint::acceptAuthorized()
 {
     const std::unique_ptr<IDeadline> acceptDeadline =
         m_deadlineFactory->startingNow(m_timeouts.acceptTimeout);
-    const AcceptedConnectionDto accepted = m_listener->acceptOne(*acceptDeadline);
+    AcceptedConnectionDto accepted = m_listener->acceptOne(*acceptDeadline);
     const bool isAuthorized = m_peerPolicy->isAllowed(accepted.peer);
     if (!isAuthorized)
     {
         return std::nullopt;
     }
-    return std::make_shared<FramedConnection>(accepted.connection, m_deadlineFactory,
+    return std::make_unique<FramedConnection>(std::move(accepted.connection), m_deadlineFactory,
                                               m_timeouts.connectionTimeout);
 }
 ```
@@ -217,7 +217,7 @@ public:
     UnixSocketListenerFactory(UnixSocketListenerFactory&&) = delete;
     UnixSocketListenerFactory& operator=(UnixSocketListenerFactory&&) = delete;
 
-    [[nodiscard]] std::shared_ptr<ISocketListener>
+    [[nodiscard]] std::unique_ptr<ISocketListener>
     create(std::unique_ptr<IFileDescriptor> listeningFd) const override;
 
 private:
@@ -240,10 +240,10 @@ UnixSocketListenerFactory::UnixSocketListenerFactory(
     }
 }
 
-std::shared_ptr<ISocketListener>
+std::unique_ptr<ISocketListener>
 UnixSocketListenerFactory::create(std::unique_ptr<IFileDescriptor> listeningFd) const
 {
-    return std::make_shared<UnixSocketListener>(std::move(listeningFd), m_deadlineFactory,
+    return std::make_unique<UnixSocketListener>(std::move(listeningFd), m_deadlineFactory,
                                                 m_acceptTimeout, m_connectionTimeout);
 }
 ```
@@ -261,9 +261,9 @@ const std::shared_ptr<ISocketActivation> activation = std::make_shared<SystemdAc
 const std::shared_ptr<IDeadlineFactory> deadlineFactory = std::make_shared<SteadyDeadlineFactory>();
 const std::shared_ptr<ISocketListenerFactory> listenerFactory =
     std::make_shared<UnixSocketListenerFactory>();
-const std::shared_ptr<IPeerPolicy> peerPolicy = std::make_shared<AgentUserPolicy>();
+std::unique_ptr<IPeerPolicy> peerPolicy = std::make_unique<AgentUserPolicy>();
 const std::shared_ptr<ISocketEndpoint> endpoint = std::make_shared<SocketEndpoint>(
-    activation, listenerFactory, peerPolicy, deadlineFactory, SocketTimeoutsDto::create(acceptTimeout, connectionTimeout));
+    activation, listenerFactory, std::move(peerPolicy), deadlineFactory, SocketTimeoutsDto::create(acceptTimeout, connectionTimeout));
 const std::shared_ptr<IRequestController> controller =
     std::make_shared<RequestController>(endpoint, parser);
 controller->serveOne();
@@ -274,7 +274,7 @@ controller->serveOne();
 ```cpp
 void RequestController::serveOne()
 {
-    const std::optional<std::shared_ptr<IFramedConnection>> connection = m_endpoint->acceptAuthorized();
+    const std::optional<std::unique_ptr<IFramedConnection>> connection = m_endpoint->acceptAuthorized();
     if (!connection.has_value())
     {
         return;
@@ -297,10 +297,11 @@ TEST_F(SocketEndpointTest, ReturnsEmptyWhenPeerIsRefused)
 {
     expectActivatedFdReachesFactory();
     EXPECT_CALL(*m_listener, acceptOne(_))
-        .WillOnce(Return(AcceptedConnectionDto{m_connection, STRANGER_PEER}));
+        .WillOnce(Return(ByMove(acceptedFrom(STRANGER_PEER))));
     EXPECT_CALL(*m_peerPolicy, isAllowed(_)).WillOnce(Return(false));
 
-    SocketEndpoint endpoint(m_activation, m_listenerFactory, m_peerPolicy, m_deadlineFactory);
+    SocketEndpoint endpoint(m_activation, m_listenerFactory, std::move(m_ownedPeerPolicy),
+                            m_deadlineFactory);
 
     EXPECT_FALSE(endpoint.acceptAuthorized().has_value());
 }
@@ -309,7 +310,8 @@ TEST_F(SocketEndpointTest, ReturnsEmptyWhenPeerIsRefused)
 The controller, with no socket, no systemd and no frame header bytes:
 
 ```cpp
-EXPECT_CALL(*m_endpoint, acceptAuthorized()).WillOnce(Return(m_framedConnection));
+EXPECT_CALL(*m_endpoint, acceptAuthorized())
+    .WillOnce(Return(ByMove(std::make_unique<MockFramedConnection>())));
 EXPECT_CALL(*m_framedConnection, readFrame()).WillOnce(Return(SAMPLE_DESIRED_PAYLOAD));
 ```
 

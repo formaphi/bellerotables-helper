@@ -13,7 +13,7 @@ class ISocketEndpoint
 public:
     virtual ~ISocketEndpoint() = default;
 
-    virtual std::optional<std::shared_ptr<IFramedConnection>> acceptAuthorized() = 0;
+    virtual std::optional<std::unique_ptr<IFramedConnection>> acceptAuthorized() = 0;
 };
 
 } // namespace adapter_socket

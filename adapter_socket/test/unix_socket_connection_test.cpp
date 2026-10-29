@@ -198,7 +198,7 @@ protected:
 
     int m_localFd = INVALID_FD;
     int m_peerFd = INVALID_FD;
-    std::shared_ptr<IDeadlineFactory> m_deadlines = std::make_shared<SteadyDeadlineFactory>();
+    std::unique_ptr<IDeadlineFactory> m_deadlines = std::make_unique<SteadyDeadlineFactory>();
 };
 
 TEST_F(UnixSocketConnectionTest, ReadExactlyAssemblesBytesWrittenInTwoSends)

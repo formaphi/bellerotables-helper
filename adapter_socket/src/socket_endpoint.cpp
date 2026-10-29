@@ -9,7 +9,7 @@ namespace adapter_socket {
 
 SocketEndpoint::SocketEndpoint(const std::shared_ptr<ISocketActivation>& activation,
                                const std::shared_ptr<ISocketListenerFactory>& listenerFactory,
-                               std::shared_ptr<IPeerPolicy> peerPolicy,
+                               std::unique_ptr<IPeerPolicy> peerPolicy,
                                std::shared_ptr<IDeadlineFactory> deadlineFactory,
                                const SocketTimeoutsDto& timeouts)
     : m_listener(createListener(activation, listenerFactory))
@@ -19,7 +19,7 @@ SocketEndpoint::SocketEndpoint(const std::shared_ptr<ISocketActivation>& activat
 {
 }
 
-std::shared_ptr<ISocketListener> SocketEndpoint::createListener(
+std::unique_ptr<ISocketListener> SocketEndpoint::createListener(
     const std::shared_ptr<ISocketActivation>& activation,
     const std::shared_ptr<ISocketListenerFactory>& listenerFactory)
 {
@@ -27,17 +27,17 @@ std::shared_ptr<ISocketListener> SocketEndpoint::createListener(
     return listenerFactory->create(std::move(listeningFd));
 }
 
-std::optional<std::shared_ptr<IFramedConnection>> SocketEndpoint::acceptAuthorized()
+std::optional<std::unique_ptr<IFramedConnection>> SocketEndpoint::acceptAuthorized()
 {
     const std::unique_ptr<IDeadline> acceptDeadline =
         m_deadlineFactory->startingNow(m_timeouts.acceptTimeout);
-    const AcceptedConnectionDto accepted = m_listener->acceptOne(*acceptDeadline);
+    AcceptedConnectionDto accepted = m_listener->acceptOne(*acceptDeadline);
     const bool isAuthorized = m_peerPolicy->isAllowed(accepted.peer);
     if (!isAuthorized)
     {
         return std::nullopt;
     }
-    return std::make_shared<FramedConnection>(accepted.connection, m_deadlineFactory,
+    return std::make_unique<FramedConnection>(std::move(accepted.connection), m_deadlineFactory,
                                               m_timeouts.connectionTimeout);
 }
 

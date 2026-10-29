@@ -160,16 +160,12 @@ make help                            # every target
 
 ## Code style
 
-- No explanatory comments/docstrings in code unless requested; explain via names.
-- The exception is [Todo Tree](https://github.com/Gruntfuggly/todo-tree) annotations: a comment that starts
-  with an uppercase tag and a colon, so the editor lists it in the tree. Tags in use:
-  - `TODO:` work still to do
-  - `FIXME:` known defect to fix
-  - `OPTIMIZE:` works as is, but has a better design to adopt later
-  - `LEARN:` a note for the author about an API or concept
-  Write the annotation as a `//` line, or a `/* TAG: ... */` block when it needs several lines, with the tag on
-  the first line. Record where the follow-up lives (a `docs/` file) in
-  [docs/socket-code-notes.md](docs/socket-code-notes.md), and remove `LEARN:` notes before merging into `develop`.
+- Comments are allowed, but every comment must start with a comment modifier: `BUG`, `COMPLEX`, `FIXME`, `HACK`,
+  `LEARN`, `OPTIMIZE`, `REVIEW` or `TODO`, followed by a colon and a description. The modifiers and their meanings
+  are defined in the hub `CLAUDE.md` (Comment modifiers); do not redefine them here.
+- The modifiers are what [Todo Tree](https://github.com/Gruntfuggly/todo-tree) lists in the editor. Write the
+  comment as a `//` line, or a `/* MODIFIER: ... */` block when it needs several lines, with the modifier on the
+  first line. Modifier comments stay in the code when merging into `develop`.
 - Do not commit unless asked. Branch before a PR.
 
 ## Branching

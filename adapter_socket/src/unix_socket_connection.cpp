@@ -69,6 +69,12 @@ std::vector<uint8_t> UnixSocketConnection::readExactly(std::size_t byteCount,
 void UnixSocketConnection::writeAll(const std::vector<uint8_t>& bytes, const IDeadline& deadline)
 {
     const int socketFd = m_connectedFd->value();
+    /* LEARN: MSG_DONTWAIT makes this one send non-blocking: the accepted fd does not inherit
+       O_NONBLOCK, and POLLOUT only promises some buffer space, so a blocking send of the rest
+       would wait past the deadline. A partial send or EAGAIN goes back to poll instead.
+       MSG_NOSIGNAL turns a write to a closed peer into EPIPE instead of SIGPIPE, whose default
+       action kills the process without unwinding.
+    */
     const int sendFlags = MSG_DONTWAIT | MSG_NOSIGNAL;
     std::size_t sent = NO_BYTES_TRANSFERRED;
 
@@ -83,6 +89,10 @@ void UnixSocketConnection::writeAll(const std::vector<uint8_t>& bytes, const IDe
         {
             const int savedErrno = errno;
             const bool wouldBlock = savedErrno == EAGAIN || savedErrno == EWOULDBLOCK;
+            /*LEARN: it says "operation would block" but it is not an error, it just means
+             that the socket buffer is full and we need to wait for it to be ready again.
+            */
+
             if (wouldBlock)
             {
                 continue;

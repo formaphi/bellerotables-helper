@@ -38,6 +38,8 @@ using adapter_socket::ActivationException;
 using adapter_socket::IDeadline;
 using adapter_socket::IFileDescriptor;
 using adapter_socket::IFramedConnection;
+using adapter_socket::IPeerPolicy;
+using adapter_socket::ISocketListener;
 using adapter_socket::MockDeadline;
 using adapter_socket::MockDeadlineFactory;
 using adapter_socket::MockFileDescriptor;
@@ -69,17 +71,30 @@ class SocketEndpointTest : public ::testing::Test
 protected:
     void SetUp() override
     {
+        std::unique_ptr<MockPeerPolicy> peerPolicy = std::make_unique<MockPeerPolicy>();
+        m_peerPolicy = peerPolicy.get();
+        m_ownedPeerPolicy = std::move(peerPolicy);
+
+        std::unique_ptr<MockSocketListener> listener = std::make_unique<MockSocketListener>();
+        m_listener = listener.get();
+        m_ownedListener = std::move(listener);
+
         EXPECT_CALL(*m_deadlineFactory, startingNow(_))
             .WillRepeatedly([](std::chrono::milliseconds) -> std::unique_ptr<IDeadline> {
                 return std::make_unique<MockDeadline>();
             });
     }
 
-    std::shared_ptr<SocketEndpoint> buildEndpoint()
+    std::unique_ptr<SocketEndpoint> buildEndpoint()
     {
-        return std::make_shared<SocketEndpoint>(
-            m_activation, m_listenerFactory, m_peerPolicy, m_deadlineFactory,
+        return std::make_unique<SocketEndpoint>(
+            m_activation, m_listenerFactory, std::move(m_ownedPeerPolicy), m_deadlineFactory,
             SocketTimeoutsDto::create(ACCEPT_TIMEOUT, CONNECTION_TIMEOUT));
+    }
+
+    static AcceptedConnectionDto acceptedFrom(const PeerCredentials& peer)
+    {
+        return AcceptedConnectionDto{std::make_unique<MockSocketConnection>(), peer};
     }
 
     void expectActivatedFdReachesFactory()
@@ -88,7 +103,8 @@ protected:
         m_activatedFd = listeningFd.get();
         EXPECT_CALL(*m_activation, takeListeningFd())
             .WillOnce(Return(ByMove(std::move(listeningFd))));
-        EXPECT_CALL(*m_listenerFactory, create(matchesActivatedFd())).WillOnce(Return(m_listener));
+        EXPECT_CALL(*m_listenerFactory, create(matchesActivatedFd()))
+            .WillOnce(Return(ByMove(std::move(m_ownedListener))));
     }
 
     testing::Matcher<std::unique_ptr<IFileDescriptor>> matchesActivatedFd() const
@@ -102,11 +118,12 @@ protected:
     std::shared_ptr<MockSocketActivation> m_activation = std::make_shared<MockSocketActivation>();
     std::shared_ptr<MockSocketListenerFactory> m_listenerFactory =
         std::make_shared<MockSocketListenerFactory>();
-    std::shared_ptr<MockPeerPolicy> m_peerPolicy = std::make_shared<MockPeerPolicy>();
     std::shared_ptr<MockDeadlineFactory> m_deadlineFactory =
         std::make_shared<MockDeadlineFactory>();
-    std::shared_ptr<MockSocketListener> m_listener = std::make_shared<MockSocketListener>();
-    std::shared_ptr<MockSocketConnection> m_connection = std::make_shared<MockSocketConnection>();
+    std::unique_ptr<IPeerPolicy> m_ownedPeerPolicy;
+    std::unique_ptr<ISocketListener> m_ownedListener;
+    MockPeerPolicy* m_peerPolicy = nullptr;
+    MockSocketListener* m_listener = nullptr;
     const IFileDescriptor* m_activatedFd = nullptr;
 };
 
@@ -114,7 +131,7 @@ TEST_F(SocketEndpointTest, PassesActivatedFdToListenerFactory)
 {
     expectActivatedFdReachesFactory();
 
-    const std::shared_ptr<SocketEndpoint> endpoint = buildEndpoint();
+    const std::unique_ptr<SocketEndpoint> endpoint = buildEndpoint();
 
     EXPECT_NE(endpoint.get(), nullptr);
 }
@@ -122,12 +139,11 @@ TEST_F(SocketEndpointTest, PassesActivatedFdToListenerFactory)
 TEST_F(SocketEndpointTest, ReturnsEmptyWhenPeerIsRefused)
 {
     expectActivatedFdReachesFactory();
-    EXPECT_CALL(*m_listener, acceptOne(_))
-        .WillOnce(Return(AcceptedConnectionDto{m_connection, STRANGER_PEER}));
+    EXPECT_CALL(*m_listener, acceptOne(_)).WillOnce(Return(ByMove(acceptedFrom(STRANGER_PEER))));
     EXPECT_CALL(*m_peerPolicy, isAllowed(Field(&PeerCredentials::userId, STRANGER_USER_ID)))
         .WillOnce(Return(false));
 
-    const std::shared_ptr<SocketEndpoint> endpoint = buildEndpoint();
+    const std::unique_ptr<SocketEndpoint> endpoint = buildEndpoint();
 
     EXPECT_FALSE(endpoint->acceptAuthorized().has_value());
 }
@@ -135,13 +151,12 @@ TEST_F(SocketEndpointTest, ReturnsEmptyWhenPeerIsRefused)
 TEST_F(SocketEndpointTest, ReturnsFramedConnectionWhenPeerIsAllowed)
 {
     expectActivatedFdReachesFactory();
-    EXPECT_CALL(*m_listener, acceptOne(_))
-        .WillOnce(Return(AcceptedConnectionDto{m_connection, AGENT_PEER}));
+    EXPECT_CALL(*m_listener, acceptOne(_)).WillOnce(Return(ByMove(acceptedFrom(AGENT_PEER))));
     EXPECT_CALL(*m_peerPolicy, isAllowed(Field(&PeerCredentials::userId, AGENT_USER_ID)))
         .WillOnce(Return(true));
 
-    const std::shared_ptr<SocketEndpoint> endpoint = buildEndpoint();
-    const std::optional<std::shared_ptr<IFramedConnection>> framed = endpoint->acceptAuthorized();
+    const std::unique_ptr<SocketEndpoint> endpoint = buildEndpoint();
+    const std::optional<std::unique_ptr<IFramedConnection>> framed = endpoint->acceptAuthorized();
 
     ASSERT_TRUE(framed.has_value());
     EXPECT_NE(framed.value().get(), nullptr);
@@ -155,11 +170,10 @@ TEST_F(SocketEndpointTest, AcceptDeadlineUsesConfiguredAcceptTimeout)
         .WillOnce([](std::chrono::milliseconds) -> std::unique_ptr<IDeadline> {
             return std::make_unique<MockDeadline>();
         });
-    EXPECT_CALL(*m_listener, acceptOne(_))
-        .WillOnce(Return(AcceptedConnectionDto{m_connection, STRANGER_PEER}));
+    EXPECT_CALL(*m_listener, acceptOne(_)).WillOnce(Return(ByMove(acceptedFrom(STRANGER_PEER))));
     EXPECT_CALL(*m_peerPolicy, isAllowed(_)).WillOnce(Return(false));
 
-    const std::shared_ptr<SocketEndpoint> endpoint = buildEndpoint();
+    const std::unique_ptr<SocketEndpoint> endpoint = buildEndpoint();
 
     EXPECT_FALSE(endpoint->acceptAuthorized().has_value());
 }
@@ -180,7 +194,7 @@ TEST_F(SocketEndpointTest, AcceptFailurePropagatesFromAcceptAuthorized)
         .WillOnce(Throw(
             std::system_error(ACCEPT_FAILURE_ERRNO, std::generic_category(), ACCEPT_OPERATION)));
 
-    const std::shared_ptr<SocketEndpoint> endpoint = buildEndpoint();
+    const std::unique_ptr<SocketEndpoint> endpoint = buildEndpoint();
 
     EXPECT_THROW(endpoint->acceptAuthorized(), std::system_error);
 }

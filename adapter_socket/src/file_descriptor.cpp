@@ -64,16 +64,16 @@ void FileDescriptor::waitUntilReady(Readiness readiness, const IDeadline& deadli
 
         if (pollResult == POLL_TIMED_OUT)
         {
-            // poll timed out on a millisecond boundary; the loop head decides whether the deadline
-            // really passed.
+            // LEARN: poll timed out on a millisecond boundary; the loop head decides whether the
+            // deadline really passed.
             continue;
         }
 
         const int savedErrno = errno;
         if (savedErrno == EINTR)
         {
-            // EINTR: a signal interrupted poll before it reported readiness, so polling again is
-            // safe and not an error.
+            // LEARN: EINTR means a signal interrupted poll before it reported readiness, so
+            // polling again is safe and not an error.
             continue;
         }
         throw std::system_error(savedErrno, std::generic_category(), "poll");

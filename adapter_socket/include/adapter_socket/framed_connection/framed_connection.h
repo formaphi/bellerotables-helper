@@ -15,7 +15,7 @@ namespace adapter_socket {
 class FramedConnection final : public IFramedConnection
 {
 public:
-    FramedConnection(std::shared_ptr<ISocketConnection> connection,
+    FramedConnection(std::unique_ptr<ISocketConnection> connection,
                      std::shared_ptr<IDeadlineFactory> deadlineFactory,
                      std::chrono::milliseconds frameTimeout);
     ~FramedConnection() override = default;
@@ -29,7 +29,7 @@ public:
     void writeFrame(const std::vector<uint8_t>& payload) override;
 
 private:
-    std::shared_ptr<ISocketConnection> m_connection;
+    std::unique_ptr<ISocketConnection> m_connection;
     std::shared_ptr<IDeadlineFactory> m_deadlineFactory;
     std::chrono::milliseconds m_frameTimeout;
 };

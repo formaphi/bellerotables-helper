@@ -13,7 +13,7 @@ class ISocketListenerFactory
 public:
     virtual ~ISocketListenerFactory() = default;
 
-    [[nodiscard]] virtual std::shared_ptr<ISocketListener> create(
+    [[nodiscard]] virtual std::unique_ptr<ISocketListener> create(
         std::unique_ptr<IFileDescriptor> listeningFd) const = 0;
 };
 

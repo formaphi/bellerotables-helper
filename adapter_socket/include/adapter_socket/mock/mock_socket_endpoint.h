@@ -9,7 +9,7 @@ namespace adapter_socket {
 class MockSocketEndpoint : public ISocketEndpoint
 {
 public:
-    MOCK_METHOD(std::optional<std::shared_ptr<IFramedConnection>>, acceptAuthorized, (),
+    MOCK_METHOD(std::optional<std::unique_ptr<IFramedConnection>>, acceptAuthorized, (),
                 (override));
 };
 
