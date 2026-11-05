@@ -1,11 +1,11 @@
-#include <adapter_socket/framed_connection/frame_header_dto.h>
+#include "adapter_socket/framed_connection/frame_header_dto.h"
 
-#include <adapter_socket/exceptions/socket_exception.h>
-
-#include <gtest/gtest.h>
+#include "adapter_socket/exceptions/socket_exception.h"
+#include "parameterized_case.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <gtest/gtest.h>
 #include <vector>
 
 constexpr uint32_t SAMPLE_PAYLOAD_LENGTH = 258;
@@ -36,35 +36,63 @@ TEST(FrameHeaderDtoTest, ToBytesEncodesLengthBigEndian)
     EXPECT_EQ(header.toBytes(), HEADER_FOR_258_BYTES);
 }
 
-TEST(FrameHeaderDtoTest, ParseDecodesBigEndianBytes)
-{
-    const adapter_socket::FrameHeaderDto parsed =
-        adapter_socket::FrameHeaderDto::parse(HEADER_FOR_258_BYTES);
-
-    EXPECT_EQ(parsed.payloadLength, SAMPLE_PAYLOAD_LENGTH);
-}
-
-TEST(FrameHeaderDtoTest, WrongHeaderSizeThrowsConnectionClosed)
-{
-    const std::vector<uint8_t> tooShort(TOO_SHORT_HEADER_BYTES, ZERO_FILL_BYTE);
-    const std::vector<uint8_t> tooLong(TOO_LONG_HEADER_BYTES, ZERO_FILL_BYTE);
-
-    EXPECT_THROW(static_cast<void>(adapter_socket::FrameHeaderDto::parse(tooShort)),
-                 adapter_socket::ConnectionClosedException);
-    EXPECT_THROW(static_cast<void>(adapter_socket::FrameHeaderDto::parse(tooLong)),
-                 adapter_socket::ConnectionClosedException);
-}
-
-TEST(FrameHeaderDtoTest, MaximumPayloadLengthIsAccepted)
-{
-    const adapter_socket::FrameHeaderDto parsed =
-        adapter_socket::FrameHeaderDto::parse(HEADER_FOR_MAXIMUM_PAYLOAD);
-
-    EXPECT_EQ(parsed.payloadLength, adapter_socket::FrameHeaderDto::MAX_PAYLOAD_BYTES);
-}
-
 TEST(FrameHeaderDtoTest, LengthAboveMaximumThrowsFrameTooLarge)
 {
     EXPECT_THROW(static_cast<void>(adapter_socket::FrameHeaderDto::parse(HEADER_ONE_ABOVE_MAXIMUM)),
                  adapter_socket::FrameTooLargeException);
 }
+
+struct ValidHeaderCase
+{
+    std::vector<uint8_t> bytes;
+    uint32_t expectedPayloadLength;
+    const char* name;
+};
+
+struct WrongSizeHeaderCase
+{
+    std::size_t byteCount;
+    const char* name;
+};
+
+const std::vector<ValidHeaderCase> VALID_HEADERS{
+    {HEADER_FOR_258_BYTES, SAMPLE_PAYLOAD_LENGTH, "BigEndian258"},
+    {HEADER_FOR_MAXIMUM_PAYLOAD,
+     static_cast<uint32_t>(adapter_socket::FrameHeaderDto::MAX_PAYLOAD_BYTES),
+     "MaximumPayloadLength"},
+};
+
+const std::vector<WrongSizeHeaderCase> WRONG_SIZE_HEADERS{
+    {TOO_SHORT_HEADER_BYTES, "TooShort"},
+    {TOO_LONG_HEADER_BYTES, "TooLong"},
+};
+
+class FrameHeaderDtoParseTest : public ::testing::TestWithParam<ValidHeaderCase>
+{
+};
+
+class FrameHeaderDtoWrongSizeTest : public ::testing::TestWithParam<WrongSizeHeaderCase>
+{
+};
+
+TEST_P(FrameHeaderDtoParseTest, DecodesPayloadLength)
+{
+    const adapter_socket::FrameHeaderDto parsed =
+        adapter_socket::FrameHeaderDto::parse(GetParam().bytes);
+
+    EXPECT_EQ(parsed.payloadLength, GetParam().expectedPayloadLength);
+}
+
+TEST_P(FrameHeaderDtoWrongSizeTest, ThrowsConnectionClosed)
+{
+    const std::vector<uint8_t> header(GetParam().byteCount, ZERO_FILL_BYTE);
+
+    EXPECT_THROW(static_cast<void>(adapter_socket::FrameHeaderDto::parse(header)),
+                 adapter_socket::ConnectionClosedException);
+}
+
+INSTANTIATE_TEST_SUITE_P(Header, FrameHeaderDtoParseTest, ::testing::ValuesIn(VALID_HEADERS),
+                         caseName<ValidHeaderCase>);
+
+INSTANTIATE_TEST_SUITE_P(Header, FrameHeaderDtoWrongSizeTest,
+                         ::testing::ValuesIn(WRONG_SIZE_HEADERS), caseName<WrongSizeHeaderCase>);

@@ -23,10 +23,12 @@
 - **`Readiness` names the operation.** `Readable` → `"read"`, `Writable` → `"write"`, `Acceptable` → `"accept"`,
   mapped with `NLOHMANN_JSON_SERIALIZE_ENUM` (`file_descriptor/readiness.h`). Callers no longer pass the operation
   text. `Acceptable` polls `POLLIN` like `Readable`; it exists so an accept timeout is reported as "accept".
-- **`value()` is the only raw access**, for the syscalls that stay with their owner (`accept4`, `recv`, `send`,
-  `getsockopt`, `setsockopt`). This is the exception `cpp-wrapping-c-pure-posix` makes for exposing the fd.
-- **Peer credentials need no DTO.** `UnixSocketConnection` owns the fd, so it does the `getsockopt(SO_PEERCRED)`
-  and converts with `PeerCredentials::fromUcred`.
+- **`value()` is the only raw access**, passed to the syscall adapters (`ISocketSyscalls` for `accept4`, `recv`,
+  `send`, `getsockopt`). This is the exception `cpp-wrapping-c-pure-posix` makes for exposing the fd.
+- **`close` and `poll` go through `IDescriptorSyscalls`.** `FileDescriptor` keeps the ownership and the deadline
+  loop; the C calls live in `PosixDescriptorSyscalls`. See [syscall-adapters.md](syscall-adapters.md).
+- **Peer credentials need no DTO.** `UnixSocketListener` reads them right after `accept4` through
+  `ISocketSyscalls::readPeerCredentials`, which converts `ucred` with `PeerCredentials::fromUcred`.
 
 ## Rejected
 

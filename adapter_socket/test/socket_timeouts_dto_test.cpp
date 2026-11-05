@@ -1,8 +1,7 @@
-#include <adapter_socket/socket_endpoint/socket_timeouts_dto.h>
-
-#include <gtest/gtest.h>
+#include "adapter_socket/socket_endpoint/socket_timeouts_dto.h"
 
 #include <chrono>
+#include <gtest/gtest.h>
 #include <stdexcept>
 
 constexpr std::chrono::milliseconds ACCEPT_TIMEOUT(250);

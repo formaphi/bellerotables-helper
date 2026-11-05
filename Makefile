@@ -4,7 +4,7 @@
 	conan-install-asan configure-asan build-asan rebuild-asan test-asan test-one-asan clean-asan \
 	conan-install-tsan configure-tsan build-tsan rebuild-tsan test-tsan test-one-tsan clean-tsan \
 	conan-install-valgrind configure-valgrind build-valgrind rebuild-valgrind test-valgrind test-one-valgrind clean-valgrind \
-	clean-coverage-report format format-check tidy tidy-fix tidy-check
+	check-contracts clean-coverage-report format format-check include-check tidy tidy-fix tidy-check
 
 COMPOSE        := docker-compose -f sandbox/docker-compose.yml
 RUN            := $(COMPOSE) run --rm sandbox
@@ -48,7 +48,8 @@ help:
 	@echo "<verb>-valgrind             Tests under Valgrind memcheck"
 	@echo "    verbs: configure build rebuild test test-one(PATTERN=<p>) clean"
 	@echo ""
-	@echo "format | format-check       clang-format (apply | CI gate)"
+	@echo "format | format-check       clang-format (apply | CI gate; format-check runs include-check)"
+	@echo "include-check               Project headers must use \"\" and external headers <>"
 	@echo "tidy | tidy-fix | tidy-check clang-tidy (report | fix | CI gate); needs 'make configure'"
 
 setup:
@@ -69,11 +70,17 @@ sandbox-down:
 sandbox-clean-volumes:
 	$(COMPOSE) down -v
 
+# The contracts submodule (pinned protobuf SSOT) must be checked out before any build.
+check-contracts:
+	@test -f contracts/proto/bellerophon/ngfw/redirection/desired.proto || { \
+	  echo "ERROR: the 'contracts' submodule is not initialised."; \
+	  echo "Run: git submodule update --init contracts"; exit 1; }
+
 # -- Release ------------------------------------------------------------------
 # The container runs as root without CAP_DAC_OVERRIDE (cap_drop: ALL), so host-side output dirs
 # are created world-writable first. What it writes there is root-owned; deletes run through it.
 
-conan-install:
+conan-install: check-contracts
 	mkdir -p production-builds/release && chmod 777 production-builds production-builds/release
 	$(call conan_install,$(BUILD_DIR))
 
@@ -94,7 +101,7 @@ clean:
 
 # -- Unit tests + gcov --------------------------------------------------------
 
-conan-install-unit:
+conan-install-unit: check-contracts
 	$(call conan_install,$(UNIT_BUILD_DIR))
 
 configure-unit: conan-install-unit
@@ -136,7 +143,7 @@ clean-coverage-report:
 
 # -- AddressSanitizer ---------------------------------------------------------
 
-conan-install-asan:
+conan-install-asan: check-contracts
 	$(call conan_install,$(ASAN_BUILD_DIR))
 
 configure-asan: conan-install-asan
@@ -164,7 +171,7 @@ clean-asan:
 
 # -- ThreadSanitizer ----------------------------------------------------------
 
-conan-install-tsan:
+conan-install-tsan: check-contracts
 	$(call conan_install,$(TSAN_BUILD_DIR))
 
 configure-tsan: conan-install-tsan
@@ -194,7 +201,7 @@ clean-tsan:
 # No special compiler flags: Valgrind instruments the binary at run time. ctest -T memcheck wraps
 # every test in MEMORYCHECK_COMMAND; --error-exitcode=1 makes any finding fail the target.
 
-conan-install-valgrind:
+conan-install-valgrind: check-contracts
 	$(call conan_install,$(VALGRIND_BUILD_DIR))
 
 configure-valgrind: conan-install-valgrind
@@ -230,8 +237,14 @@ TIDY_SOURCES   := main.cpp $(if $(SOURCE_DIRS),$(shell find $(SOURCE_DIRS) -path
 format:
 	$(RUN_AS_HOST) clang-format -i $(FORMAT_SOURCES)
 
-format-check:
+format-check: include-check
 	$(RUN) clang-format --dry-run --Werror $(FORMAT_SOURCES)
+
+# clang-format sorts and groups includes but cannot turn <> into "", so project headers written
+# with <> are caught here.
+include-check:
+	@if grep -nE '^[[:space:]]*#[[:space:]]*include[[:space:]]*<adapter_[a-z_]+/' $(FORMAT_SOURCES); then \
+	  echo 'Project headers must be included with quotes: #include "adapter_.../..."'; exit 1; fi
 
 tidy:
 	$(RUN) clang-tidy -p $(BUILD_DIR) $(TIDY_SOURCES)

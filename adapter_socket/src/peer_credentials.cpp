@@ -1,4 +1,7 @@
-#include <adapter_socket/peer_connection/peer_credentials.h>
+#include "adapter_socket/peer_connection/peer_credentials.h"
+
+#include <cstdint>
+#include <sys/socket.h>
 
 namespace adapter_socket {
 

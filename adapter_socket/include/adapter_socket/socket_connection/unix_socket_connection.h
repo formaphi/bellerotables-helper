@@ -1,9 +1,10 @@
 #ifndef ADAPTER_SOCKET_UNIX_SOCKET_CONNECTION_H
 #define ADAPTER_SOCKET_UNIX_SOCKET_CONNECTION_H
 
-#include <adapter_socket/deadline/interface_deadline.h>
-#include <adapter_socket/file_descriptor/interface_file_descriptor.h>
-#include <adapter_socket/socket_connection/interface_socket_connection.h>
+#include "adapter_socket/deadline/interface_deadline.h"
+#include "adapter_socket/file_descriptor/interface_file_descriptor.h"
+#include "adapter_socket/socket_connection/interface_socket_connection.h"
+#include "adapter_socket/socket_syscalls/interface_socket_syscalls.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -15,7 +16,8 @@ namespace adapter_socket {
 class UnixSocketConnection final : public ISocketConnection
 {
 public:
-    explicit UnixSocketConnection(std::unique_ptr<IFileDescriptor> connectedFd);
+    UnixSocketConnection(std::unique_ptr<IFileDescriptor> connectedFd,
+                         std::shared_ptr<ISocketSyscalls> syscalls);
     ~UnixSocketConnection() override = default;
 
     UnixSocketConnection(const UnixSocketConnection&) = delete;
@@ -28,6 +30,7 @@ public:
 
 private:
     std::unique_ptr<IFileDescriptor> m_connectedFd;
+    std::shared_ptr<ISocketSyscalls> m_syscalls;
 };
 
 } // namespace adapter_socket

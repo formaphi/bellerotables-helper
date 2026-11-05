@@ -1,8 +1,13 @@
 #ifndef ADAPTER_SOCKET_PEER_CREDENTIALS_H
 #define ADAPTER_SOCKET_PEER_CREDENTIALS_H
 
-#include <sys/socket.h>
 #include <cstdint>
+
+/* LEARN: ucred is the C struct the kernel fills for SO_PEERCRED (<sys/socket.h>). A forward
+   declaration is enough to name it here, so including this header does not pull the C socket API
+   into the domain code; only peer_credentials.cpp includes <sys/socket.h>.
+*/
+struct ucred;
 
 namespace adapter_socket {
 

@@ -71,8 +71,9 @@ is the client: [docs/socket-roles.md](docs/socket-roles.md). The library's singl
 [docs/socket-endpoint.md](docs/socket-endpoint.md) — accepted and implemented. Every fd is owned by a
 `FileDescriptor` and moves as `std::unique_ptr<IFileDescriptor>` from activation to listener to connection:
 [docs/socket-file-descriptor.md](docs/socket-file-descriptor.md). Where the raw POSIX calls (`getpwnam_r`,
-`recv`, `accept4`, …) should live — one small adapter interface per kind of syscall, **proposed, not
-implemented** — is in [docs/syscall-adapters.md](docs/syscall-adapters.md). The `LEARN` / `OPTIMIZE`
+`recv`, `accept4`, …) live — one small adapter interface per kind of syscall (`ISocketSyscalls`, `IDescriptorSyscalls`,
+`IUserDirectory`, `ISystemdDaemon`), injected into the classes that use them, implemented — is in
+[docs/syscall-adapters.md](docs/syscall-adapters.md). The `LEARN` / `OPTIMIZE`
 annotations still in the sources, and the follow-up for each, are listed in
 [docs/socket-code-notes.md](docs/socket-code-notes.md).
 

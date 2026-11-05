@@ -61,7 +61,9 @@ One activation runs these steps in order: **activation → listen → peer polic
    deadline passes, the `accept4` errno otherwise).
 3. **Peer policy.** `AgentUserPolicy` compares the connection's `SO_PEERCRED` uid with the `agent_user` from
    `/etc/bellerophon/bellerotables-helper.conf`. It does not throw: a missing file or an unknown user makes
-   it refuse every peer.
+   it refuse every peer. A peer whose uid is `PeerCredentials::UNKNOWN_ID` (0, the value of credentials the
+   kernel never filled, and also root) is always refused, even if `agent_user` resolves to uid 0, so
+   `agent_user=root` never authorizes anyone.
 4. **Connection.** Byte I/O on the accepted connection, bounded by a deadline. Fails with
    `ConnectionClosedException` (the peer closed mid-read) or `std::system_error` (timeout or syscall errno).
 5. **Framing.** 4-byte big-endian length prefix and a 64 KiB payload cap. Fails with
@@ -80,7 +82,7 @@ Because the helper is the server, the library carries the server-side pieces a c
 |---|---|
 | `SystemdActivation` | takes the listening fd from systemd and checks it is a listening `AF_UNIX` stream socket |
 | `UnixSocketListener` (`ISocketListener`) | the single `accept()`, bounded by a deadline |
-| `AgentUserPolicy` (`IPeerPolicy`) | refuses any peer whose `SO_PEERCRED` uid is not the configured `agent_user` |
+| `AgentUserPolicy` (`IPeerPolicy`) | refuses any peer whose `SO_PEERCRED` uid is not the configured `agent_user`, and always refuses uid `UNKNOWN_ID` (0) |
 | `UnixSocketConnection` (`ISocketConnection`) | byte I/O on the accepted connection, bounded by a deadline |
 | `FramedConnection` (`IFramedConnection`) | the 4-byte length prefix and the 64 KiB cap |
 
