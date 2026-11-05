@@ -1,5 +1,4 @@
 #include <adapter_socket/socket_listener/unix_socket_listener_factory.h>
-
 #include <utility>
 
 namespace adapter_socket {

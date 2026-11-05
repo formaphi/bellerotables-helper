@@ -4,7 +4,6 @@
 #include <adapter_socket/deadline/interface_deadline.h>
 #include <adapter_socket/file_descriptor/interface_file_descriptor.h>
 #include <adapter_socket/socket_connection/interface_socket_connection.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <memory>

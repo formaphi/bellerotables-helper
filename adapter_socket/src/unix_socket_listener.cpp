@@ -1,11 +1,9 @@
-#include <adapter_socket/socket_listener/unix_socket_listener.h>
-
 #include <adapter_socket/file_descriptor/file_descriptor.h>
 #include <adapter_socket/socket_connection/unix_socket_connection.h>
-
-#include <sys/socket.h>
+#include <adapter_socket/socket_listener/unix_socket_listener.h>
 #include <cerrno>
 #include <memory>
+#include <sys/socket.h>
 #include <system_error>
 #include <utility>
 
@@ -65,7 +63,8 @@ PeerCredentials UnixSocketListener::readPeerCredentials(const IFileDescriptor& c
        SO_PEERCRED is the option name (Linux): the pid, uid and gid the kernel recorded when the
        peer called connect(). The peer cannot forge them, and this is what the peer policy
        checks. The socket address is no substitute: an unbound AF_UNIX client has none.
-       ucred is the exact type the kernel fills for SO_PEERCRED. It has three fields: pid, uid and gid.    
+       ucred is the exact type the kernel fills for SO_PEERCRED. It has three fields: pid, uid and
+       gid.
     */
     const int peerCredentialsResult =
         ::getsockopt(connectedFd.value(), SOL_SOCKET, SO_PEERCRED, &credentials, &length);

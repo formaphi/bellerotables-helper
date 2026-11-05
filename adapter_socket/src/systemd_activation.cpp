@@ -1,16 +1,14 @@
 #include <adapter_socket/activation/systemd_activation.h>
-
 #include <adapter_socket/exceptions/socket_exception.h>
 #include <adapter_socket/file_descriptor/file_descriptor.h>
-
-#include <fcntl.h>
-#include <sys/socket.h>
-#include <systemd/sd-daemon.h>
 #include <cerrno>
 #include <cstddef>
+#include <fcntl.h>
 #include <memory>
 #include <string>
+#include <sys/socket.h>
 #include <system_error>
+#include <systemd/sd-daemon.h>
 
 namespace adapter_socket {
 
@@ -57,13 +55,13 @@ std::unique_ptr<IFileDescriptor> SystemdActivation::takeListeningFd() const
 void SystemdActivation::enableNonBlocking(int fileDescriptor)
 {
     /*LEARN
-        fcntl is a system call used to manipulate file descriptors. 
+        fcntl is a system call used to manipulate file descriptors.
         In this context, it is used to read and modify the file status flags
-        of the given file descriptor to enable non-blocking mode.    
+        of the given file descriptor to enable non-blocking mode.
     */
     /*OPTIMIZE
-        move those two fcntl calls to IFileDescriptor 
-        so that all activation won't responsible for this, 
+        move those two fcntl calls to IFileDescriptor
+        so that all activation won't responsible for this,
         and all file descriptors will be non-blocking by default
     */
 

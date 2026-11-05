@@ -1,10 +1,8 @@
 #include <adapter_socket/peer_connection/peer_credentials.h>
-
+#include <cstdint>
 #include <gtest/gtest.h>
-
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <cstdint>
 
 constexpr uid_t SAMPLE_UID = 1000;
 constexpr gid_t SAMPLE_GID = 1001;

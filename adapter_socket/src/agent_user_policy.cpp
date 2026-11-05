@@ -1,16 +1,14 @@
 #include <adapter_socket/peer_connection/agent_user_policy.h>
-
 #include <adapter_socket/peer_connection/helper_config_dto.h>
-
-#include <pwd.h>
-#include <unistd.h>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <optional>
+#include <pwd.h>
 #include <sstream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace adapter_socket {

@@ -1,10 +1,8 @@
-#include <adapter_socket/socket_connection/unix_socket_connection.h>
-
 #include <adapter_socket/exceptions/socket_exception.h>
-
+#include <adapter_socket/socket_connection/unix_socket_connection.h>
+#include <cerrno>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <cerrno>
 #include <system_error>
 #include <utility>
 

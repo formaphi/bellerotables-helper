@@ -1,8 +1,6 @@
 #include <adapter_socket/deadline/steady_deadline_factory.h>
-
-#include <gtest/gtest.h>
-
 #include <chrono>
+#include <gtest/gtest.h>
 #include <memory>
 
 using adapter_socket::IDeadline;

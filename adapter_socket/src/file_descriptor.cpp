@@ -1,9 +1,8 @@
 #include <adapter_socket/file_descriptor/file_descriptor.h>
-
-#include <poll.h>
-#include <unistd.h>
 #include <cerrno>
+#include <poll.h>
 #include <system_error>
+#include <unistd.h>
 
 namespace adapter_socket {
 
@@ -49,14 +48,14 @@ void FileDescriptor::waitUntilReady(Readiness readiness, const IDeadline& deadli
 
         const int pollResult = ::poll(&descriptor, SINGLE_POLL_DESCRIPTOR, timeoutMilliseconds);
         /*LEARN
-            suspends execution of the calling thread until the file descriptor is ready 
+            suspends execution of the calling thread until the file descriptor is ready
             for the requested I/O operation or until the timeout expires.
             The poll function is used to monitor multiple file descriptors to see if
-            any of them are ready for I/O. In this case, 
-            it is used to wait for the file descriptor to become ready for reading or writing, 
+            any of them are ready for I/O. In this case,
+            it is used to wait for the file descriptor to become ready for reading or writing,
             depending on the specified readiness.
         */
-       
+
         if (pollResult > POLL_TIMED_OUT)
         {
             return;

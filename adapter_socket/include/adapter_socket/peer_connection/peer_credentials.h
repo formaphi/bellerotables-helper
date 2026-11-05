@@ -1,8 +1,8 @@
 #ifndef ADAPTER_SOCKET_PEER_CREDENTIALS_H
 #define ADAPTER_SOCKET_PEER_CREDENTIALS_H
 
-#include <sys/socket.h>
 #include <cstdint>
+#include <sys/socket.h>
 
 namespace adapter_socket {
 

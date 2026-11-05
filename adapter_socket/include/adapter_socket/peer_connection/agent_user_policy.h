@@ -2,7 +2,6 @@
 #define ADAPTER_SOCKET_AGENT_USER_POLICY_H
 
 #include <adapter_socket/peer_connection/interface_peer_policy.h>
-
 #include <cstdint>
 #include <optional>
 #include <string>

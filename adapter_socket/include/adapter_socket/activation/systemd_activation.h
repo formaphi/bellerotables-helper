@@ -2,7 +2,6 @@
 #define ADAPTER_SOCKET_SYSTEMD_ACTIVATION_H
 
 #include <adapter_socket/activation/interface_socket_activation.h>
-
 #include <memory>
 
 namespace adapter_socket {

@@ -2,7 +2,6 @@
 #define INTERFACE_SOCKET_ENDPOINT_H
 
 #include <adapter_socket/framed_connection/interface_framed_connection.h>
-
 #include <memory>
 #include <optional>
 

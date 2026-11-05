@@ -1,8 +1,6 @@
-#include <adapter_socket/socket_endpoint/socket_endpoint.h>
-
 #include <adapter_socket/file_descriptor/interface_file_descriptor.h>
 #include <adapter_socket/framed_connection/framed_connection.h>
-
+#include <adapter_socket/socket_endpoint/socket_endpoint.h>
 #include <utility>
 
 namespace adapter_socket {

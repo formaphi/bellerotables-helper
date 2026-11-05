@@ -4,7 +4,7 @@
 	conan-install-asan configure-asan build-asan rebuild-asan test-asan test-one-asan clean-asan \
 	conan-install-tsan configure-tsan build-tsan rebuild-tsan test-tsan test-one-tsan clean-tsan \
 	conan-install-valgrind configure-valgrind build-valgrind rebuild-valgrind test-valgrind test-one-valgrind clean-valgrind \
-	clean-coverage-report format format-check tidy tidy-fix tidy-check
+	clean-coverage-report format format-check include-check tidy tidy-fix tidy-check
 
 COMPOSE        := docker-compose -f sandbox/docker-compose.yml
 RUN            := $(COMPOSE) run --rm sandbox
@@ -48,7 +48,8 @@ help:
 	@echo "<verb>-valgrind             Tests under Valgrind memcheck"
 	@echo "    verbs: configure build rebuild test test-one(PATTERN=<p>) clean"
 	@echo ""
-	@echo "format | format-check       clang-format (apply | CI gate)"
+	@echo "format | format-check       clang-format (apply | CI gate; format-check runs include-check)"
+	@echo "include-check               Project headers must use \"\" and external headers <>"
 	@echo "tidy | tidy-fix | tidy-check clang-tidy (report | fix | CI gate); needs 'make configure'"
 
 setup:
@@ -230,8 +231,14 @@ TIDY_SOURCES   := main.cpp $(if $(SOURCE_DIRS),$(shell find $(SOURCE_DIRS) -path
 format:
 	$(RUN_AS_HOST) clang-format -i $(FORMAT_SOURCES)
 
-format-check:
+format-check: include-check
 	$(RUN) clang-format --dry-run --Werror $(FORMAT_SOURCES)
+
+# clang-format sorts and groups includes but cannot turn <> into "", so project headers written
+# with <> are caught here.
+include-check:
+	@if grep -nE '^[[:space:]]*#[[:space:]]*include[[:space:]]*<adapter_[a-z_]+/' $(FORMAT_SOURCES); then \
+	  echo 'Project headers must be included with quotes: #include "adapter_.../..."'; exit 1; fi
 
 tidy:
 	$(RUN) clang-tidy -p $(BUILD_DIR) $(TIDY_SOURCES)

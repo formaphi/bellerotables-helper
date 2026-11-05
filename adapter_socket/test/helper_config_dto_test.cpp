@@ -1,7 +1,5 @@
 #include <adapter_socket/peer_connection/helper_config_dto.h>
-
 #include <gtest/gtest.h>
-
 #include <string>
 #include <string_view>
 

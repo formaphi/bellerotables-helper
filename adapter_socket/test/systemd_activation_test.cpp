@@ -1,25 +1,22 @@
 #include <adapter_socket/activation/systemd_activation.h>
-
 #include <adapter_socket/exceptions/socket_exception.h>
 #include <adapter_socket/file_descriptor/interface_file_descriptor.h>
-
-#include <gtest/gtest.h>
-#include <systemd/sd-daemon.h>
-
-#include <fcntl.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/un.h>
-#include <unistd.h>
 #include <array>
 #include <cerrno>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
+#include <gtest/gtest.h>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/un.h>
 #include <system_error>
+#include <systemd/sd-daemon.h>
+#include <unistd.h>
 
 constexpr const char* LISTEN_PID_ENVIRONMENT = "LISTEN_PID";
 constexpr const char* LISTEN_FDS_ENVIRONMENT = "LISTEN_FDS";

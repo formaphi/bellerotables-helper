@@ -1,11 +1,8 @@
-#include <adapter_socket/framed_connection/frame_header_dto.h>
-
 #include <adapter_socket/exceptions/socket_exception.h>
-
-#include <gtest/gtest.h>
-
+#include <adapter_socket/framed_connection/frame_header_dto.h>
 #include <cstddef>
 #include <cstdint>
+#include <gtest/gtest.h>
 #include <vector>
 
 constexpr uint32_t SAMPLE_PAYLOAD_LENGTH = 258;

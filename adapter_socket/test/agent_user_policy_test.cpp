@@ -1,17 +1,14 @@
 #include <adapter_socket/peer_connection/agent_user_policy.h>
-
 #include <adapter_socket/peer_connection/peer_credentials.h>
-
-#include <gtest/gtest.h>
-
-#include <unistd.h>
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <gtest/gtest.h>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <unistd.h>
 
 constexpr uint32_t ROOT_USER_ID = 0;
 constexpr uint32_t UNRELATED_USER_ID = 1000;

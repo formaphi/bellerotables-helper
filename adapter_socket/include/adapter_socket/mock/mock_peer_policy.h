@@ -1,7 +1,6 @@
 #pragma once
 
 #include <adapter_socket/peer_connection/interface_peer_policy.h>
-
 #include <gmock/gmock.h>
 
 namespace adapter_socket {

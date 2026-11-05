@@ -2,7 +2,6 @@
 
 #include <adapter_socket/deadline/interface_deadline.h>
 #include <adapter_socket/file_descriptor/interface_file_descriptor.h>
-
 #include <gmock/gmock.h>
 
 namespace adapter_socket {

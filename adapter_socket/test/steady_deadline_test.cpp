@@ -1,9 +1,7 @@
 #include <adapter_socket/deadline/steady_deadline.h>
-
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <cstdint>
+#include <gtest/gtest.h>
 #include <limits>
 
 using adapter_socket::SteadyDeadline;

@@ -8,7 +8,6 @@
 #include <adapter_socket/socket_endpoint/socket_timeouts_dto.h>
 #include <adapter_socket/socket_listener/interface_socket_listener.h>
 #include <adapter_socket/socket_listener/interface_socket_listener_factory.h>
-
 #include <memory>
 #include <optional>
 

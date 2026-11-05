@@ -1,7 +1,6 @@
 #pragma once
 
 #include <adapter_socket/socket_endpoint/interface_socket_endpoint.h>
-
 #include <gmock/gmock.h>
 
 namespace adapter_socket {

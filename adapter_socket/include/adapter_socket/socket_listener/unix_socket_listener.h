@@ -6,7 +6,6 @@
 #include <adapter_socket/peer_connection/peer_credentials.h>
 #include <adapter_socket/socket_listener/accepted_connection_dto.h>
 #include <adapter_socket/socket_listener/interface_socket_listener.h>
-
 #include <memory>
 
 namespace adapter_socket {

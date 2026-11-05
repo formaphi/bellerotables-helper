@@ -1,5 +1,3 @@
-#include <adapter_socket/socket_connection/unix_socket_connection.h>
-
 #include <adapter_socket/deadline/interface_deadline.h>
 #include <adapter_socket/deadline/interface_deadline_factory.h>
 #include <adapter_socket/deadline/steady_deadline_factory.h>
@@ -7,23 +5,22 @@
 #include <adapter_socket/file_descriptor/file_descriptor.h>
 #include <adapter_socket/file_descriptor/interface_file_descriptor.h>
 #include <adapter_socket/mock/mock_deadline.h>
-
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
-#include <fcntl.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <adapter_socket/socket_connection/unix_socket_connection.h>
 #include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <fcntl.h>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <memory>
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <system_error>
 #include <thread>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 

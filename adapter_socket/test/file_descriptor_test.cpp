@@ -1,20 +1,17 @@
 #include <adapter_socket/file_descriptor/file_descriptor.h>
-
 #include <adapter_socket/mock/mock_deadline.h>
-
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
-#include <fcntl.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <array>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <fcntl.h>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <string>
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <system_error>
+#include <unistd.h>
 
 using adapter_socket::MockDeadline;
 using ::testing::HasSubstr;
