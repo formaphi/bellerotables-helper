@@ -1,7 +1,7 @@
 #if !defined(INTERFACE_PEER_POLICY_H)
 #define INTERFACE_PEER_POLICY_H
 
-#include <adapter_socket/peer_connection/peer_credentials.h>
+#include "adapter_socket/peer_connection/peer_credentials.h"
 
 namespace adapter_socket {
 

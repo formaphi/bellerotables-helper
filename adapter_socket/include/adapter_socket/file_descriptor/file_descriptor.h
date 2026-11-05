@@ -1,15 +1,18 @@
 #ifndef ADAPTER_SOCKET_FILE_DESCRIPTOR_H
 #define ADAPTER_SOCKET_FILE_DESCRIPTOR_H
 
-#include <adapter_socket/deadline/interface_deadline.h>
-#include <adapter_socket/file_descriptor/interface_file_descriptor.h>
+#include "adapter_socket/deadline/interface_deadline.h"
+#include "adapter_socket/descriptor_syscalls/interface_descriptor_syscalls.h"
+#include "adapter_socket/file_descriptor/interface_file_descriptor.h"
+
+#include <memory>
 
 namespace adapter_socket {
 
 class FileDescriptor final : public IFileDescriptor
 {
 public:
-    explicit FileDescriptor(int fileDescriptor);
+    FileDescriptor(int fileDescriptor, std::shared_ptr<IDescriptorSyscalls> syscalls);
     ~FileDescriptor() override;
 
     FileDescriptor(const FileDescriptor&) = delete;
@@ -24,9 +27,8 @@ private:
     static constexpr int INVALID_FD = -1;
     static constexpr int VALID_FD = 0;
 
-    [[nodiscard]] static short pollEventsFor(Readiness readiness);
-
     int m_fd;
+    std::shared_ptr<IDescriptorSyscalls> m_syscalls;
 };
 
 } // namespace adapter_socket

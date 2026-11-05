@@ -1,7 +1,7 @@
 #if !defined(INTERFACE_SOCKET_CONNECTION_H)
 #define INTERFACE_SOCKET_CONNECTION_H
 
-#include <adapter_socket/deadline/interface_deadline.h>
+#include "adapter_socket/deadline/interface_deadline.h"
 
 #include <cstddef>
 #include <cstdint>

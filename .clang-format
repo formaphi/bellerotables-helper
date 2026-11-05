@@ -45,5 +45,15 @@ KeepEmptyLinesAtTheStartOfBlocks: false
 MaxEmptyLinesToKeep: 1
 SeparateDefinitionBlocks: Always
 
+# Includes: own header first, then project headers ("..."), then everything from outside the
+# project (<...>: C/POSIX, C++ standard library, gtest, libsystemd, ...). Each block is sorted
+# alphabetically. clang-format cannot turn <> into "", so `make format-check` also rejects
+# project headers written with <>.
 SortIncludes: CaseSensitive
-IncludeBlocks: Preserve
+IncludeBlocks: Regroup
+IncludeIsMainRegex: '([-_](test|unittest))?$'
+IncludeCategories:
+  - Regex: '^"'
+    Priority: 1
+  - Regex: '^<'
+    Priority: 2

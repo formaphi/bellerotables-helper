@@ -1,8 +1,8 @@
 #ifndef ADAPTER_SOCKET_ACCEPTED_CONNECTION_DTO_H
 #define ADAPTER_SOCKET_ACCEPTED_CONNECTION_DTO_H
 
-#include <adapter_socket/peer_connection/peer_credentials.h>
-#include <adapter_socket/socket_connection/interface_socket_connection.h>
+#include "adapter_socket/peer_connection/peer_credentials.h"
+#include "adapter_socket/socket_connection/interface_socket_connection.h"
 
 #include <memory>
 
