@@ -4,7 +4,7 @@
 	conan-install-asan configure-asan build-asan rebuild-asan test-asan test-one-asan clean-asan \
 	conan-install-tsan configure-tsan build-tsan rebuild-tsan test-tsan test-one-tsan clean-tsan \
 	conan-install-valgrind configure-valgrind build-valgrind rebuild-valgrind test-valgrind test-one-valgrind clean-valgrind \
-	clean-coverage-report format format-check include-check tidy tidy-fix tidy-check
+	check-contracts clean-coverage-report format format-check include-check tidy tidy-fix tidy-check
 
 COMPOSE        := docker-compose -f sandbox/docker-compose.yml
 RUN            := $(COMPOSE) run --rm sandbox
@@ -70,11 +70,17 @@ sandbox-down:
 sandbox-clean-volumes:
 	$(COMPOSE) down -v
 
+# The contracts submodule (pinned protobuf SSOT) must be checked out before any build.
+check-contracts:
+	@test -f contracts/proto/bellerophon/ngfw/redirection/desired.proto || { \
+	  echo "ERROR: the 'contracts' submodule is not initialised."; \
+	  echo "Run: git submodule update --init contracts"; exit 1; }
+
 # -- Release ------------------------------------------------------------------
 # The container runs as root without CAP_DAC_OVERRIDE (cap_drop: ALL), so host-side output dirs
 # are created world-writable first. What it writes there is root-owned; deletes run through it.
 
-conan-install:
+conan-install: check-contracts
 	mkdir -p production-builds/release && chmod 777 production-builds production-builds/release
 	$(call conan_install,$(BUILD_DIR))
 
@@ -95,7 +101,7 @@ clean:
 
 # -- Unit tests + gcov --------------------------------------------------------
 
-conan-install-unit:
+conan-install-unit: check-contracts
 	$(call conan_install,$(UNIT_BUILD_DIR))
 
 configure-unit: conan-install-unit
@@ -137,7 +143,7 @@ clean-coverage-report:
 
 # -- AddressSanitizer ---------------------------------------------------------
 
-conan-install-asan:
+conan-install-asan: check-contracts
 	$(call conan_install,$(ASAN_BUILD_DIR))
 
 configure-asan: conan-install-asan
@@ -165,7 +171,7 @@ clean-asan:
 
 # -- ThreadSanitizer ----------------------------------------------------------
 
-conan-install-tsan:
+conan-install-tsan: check-contracts
 	$(call conan_install,$(TSAN_BUILD_DIR))
 
 configure-tsan: conan-install-tsan
@@ -195,7 +201,7 @@ clean-tsan:
 # No special compiler flags: Valgrind instruments the binary at run time. ctest -T memcheck wraps
 # every test in MEMORYCHECK_COMMAND; --error-exitcode=1 makes any finding fail the target.
 
-conan-install-valgrind:
+conan-install-valgrind: check-contracts
 	$(call conan_install,$(VALGRIND_BUILD_DIR))
 
 configure-valgrind: conan-install-valgrind
