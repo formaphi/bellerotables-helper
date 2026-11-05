@@ -1,11 +1,21 @@
-#include <adapter_socket/deadline/interface_deadline.h>
-#include <adapter_socket/deadline/interface_deadline_factory.h>
-#include <adapter_socket/deadline/steady_deadline_factory.h>
-#include <adapter_socket/exceptions/socket_exception.h>
-#include <adapter_socket/file_descriptor/file_descriptor.h>
-#include <adapter_socket/file_descriptor/interface_file_descriptor.h>
-#include <adapter_socket/mock/mock_deadline.h>
-#include <adapter_socket/socket_connection/unix_socket_connection.h>
+#include "adapter_socket/socket_connection/unix_socket_connection.h"
+
+#include "adapter_socket/deadline/interface_deadline.h"
+#include "adapter_socket/deadline/interface_deadline_factory.h"
+#include "adapter_socket/deadline/steady_deadline_factory.h"
+#include "adapter_socket/descriptor_syscalls/interface_descriptor_syscalls.h"
+#include "adapter_socket/descriptor_syscalls/posix_descriptor_syscalls.h"
+#include "adapter_socket/exceptions/socket_exception.h"
+#include "adapter_socket/file_descriptor/file_descriptor.h"
+#include "adapter_socket/file_descriptor/interface_file_descriptor.h"
+#include "adapter_socket/mock/mock_deadline.h"
+#include "adapter_socket/mock/mock_file_descriptor.h"
+#include "adapter_socket/mock/mock_socket_syscalls.h"
+#include "adapter_socket/socket_syscalls/interface_socket_syscalls.h"
+#include "adapter_socket/socket_syscalls/posix_socket_syscalls.h"
+#include "parameterized_case.h"
+
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cerrno>
@@ -13,9 +23,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <fcntl.h>
+#include <functional>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <memory>
+#include <span>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <system_error>
@@ -27,10 +39,20 @@
 using adapter_socket::FileDescriptor;
 using adapter_socket::IDeadline;
 using adapter_socket::IDeadlineFactory;
+using adapter_socket::IDescriptorSyscalls;
 using adapter_socket::IFileDescriptor;
+using adapter_socket::ISocketSyscalls;
 using adapter_socket::MockDeadline;
+using adapter_socket::MockFileDescriptor;
+using adapter_socket::MockSocketSyscalls;
+using adapter_socket::PosixDescriptorSyscalls;
+using adapter_socket::PosixSocketSyscalls;
+using adapter_socket::Readiness;
 using adapter_socket::SteadyDeadlineFactory;
+using adapter_socket::SyscallResult;
 using adapter_socket::UnixSocketConnection;
+using ::testing::_;
+using ::testing::InSequence;
 using ::testing::Return;
 
 constexpr std::size_t LARGE_PAYLOAD_BYTES = 1048576;
@@ -63,6 +85,9 @@ constexpr std::size_t LOCAL_END = 0;
 constexpr std::size_t PEER_END = 1;
 constexpr uint8_t SLOW_LORIS_BYTE = 0x2A;
 constexpr std::chrono::milliseconds SLOW_LORIS_INTERVAL(150);
+constexpr int FAKE_CONNECTED_FD = 4242;
+constexpr std::size_t TWO_BYTES = 2;
+constexpr int NO_ERROR_CAUGHT = 0;
 
 class StopAndJoin final
 {
@@ -196,12 +221,16 @@ protected:
     int m_localFd = INVALID_FD;
     int m_peerFd = INVALID_FD;
     std::unique_ptr<IDeadlineFactory> m_deadlines = std::make_unique<SteadyDeadlineFactory>();
+    std::shared_ptr<IDescriptorSyscalls> m_descriptorSyscalls =
+        std::make_shared<PosixDescriptorSyscalls>();
+    std::shared_ptr<ISocketSyscalls> m_socketSyscalls = std::make_shared<PosixSocketSyscalls>();
 };
 
 TEST_F(UnixSocketConnectionTest, ReadExactlyAssemblesBytesWrittenInTwoSends)
 {
-    std::unique_ptr<IFileDescriptor> localFd = std::make_unique<FileDescriptor>(m_localFd);
-    UnixSocketConnection connection(std::move(localFd));
+    std::unique_ptr<IFileDescriptor> localFd =
+        std::make_unique<FileDescriptor>(m_localFd, m_descriptorSyscalls);
+    UnixSocketConnection connection(std::move(localFd), m_socketSyscalls);
     const std::unique_ptr<IDeadline> deadline = m_deadlines->startingNow(DEFAULT_TEST_TIMEOUT);
 
     sendBytes(m_peerFd, FIRST_CHUNK);
@@ -212,8 +241,9 @@ TEST_F(UnixSocketConnectionTest, ReadExactlyAssemblesBytesWrittenInTwoSends)
 
 TEST_F(UnixSocketConnectionTest, ReadExactlyZeroReturnsEmptyVector)
 {
-    std::unique_ptr<IFileDescriptor> localFd = std::make_unique<FileDescriptor>(m_localFd);
-    UnixSocketConnection connection(std::move(localFd));
+    std::unique_ptr<IFileDescriptor> localFd =
+        std::make_unique<FileDescriptor>(m_localFd, m_descriptorSyscalls);
+    UnixSocketConnection connection(std::move(localFd), m_socketSyscalls);
     const std::unique_ptr<IDeadline> deadline = m_deadlines->startingNow(DEFAULT_TEST_TIMEOUT);
 
     EXPECT_TRUE(connection.readExactly(NO_BYTES_TRANSFERRED, *deadline).empty());
@@ -221,8 +251,9 @@ TEST_F(UnixSocketConnectionTest, ReadExactlyZeroReturnsEmptyVector)
 
 TEST_F(UnixSocketConnectionTest, PeerClosingBeforeEnoughBytesThrowsConnectionClosed)
 {
-    std::unique_ptr<IFileDescriptor> localFd = std::make_unique<FileDescriptor>(m_localFd);
-    UnixSocketConnection connection(std::move(localFd));
+    std::unique_ptr<IFileDescriptor> localFd =
+        std::make_unique<FileDescriptor>(m_localFd, m_descriptorSyscalls);
+    UnixSocketConnection connection(std::move(localFd), m_socketSyscalls);
     const std::unique_ptr<IDeadline> deadline = m_deadlines->startingNow(DEFAULT_TEST_TIMEOUT);
 
     sendBytes(m_peerFd, SHORT_CHUNK);
@@ -234,8 +265,9 @@ TEST_F(UnixSocketConnectionTest, PeerClosingBeforeEnoughBytesThrowsConnectionClo
 
 TEST_F(UnixSocketConnectionTest, WriteAllRoundTripsThroughPeer)
 {
-    std::unique_ptr<IFileDescriptor> localFd = std::make_unique<FileDescriptor>(m_localFd);
-    UnixSocketConnection connection(std::move(localFd));
+    std::unique_ptr<IFileDescriptor> localFd =
+        std::make_unique<FileDescriptor>(m_localFd, m_descriptorSyscalls);
+    UnixSocketConnection connection(std::move(localFd), m_socketSyscalls);
     const std::unique_ptr<IDeadline> deadline = m_deadlines->startingNow(DEFAULT_TEST_TIMEOUT);
 
     connection.writeAll(WRITTEN_BYTES, *deadline);
@@ -245,8 +277,9 @@ TEST_F(UnixSocketConnectionTest, WriteAllRoundTripsThroughPeer)
 
 TEST_F(UnixSocketConnectionTest, LargeWriteCompletesWhileReaderDrains)
 {
-    std::unique_ptr<IFileDescriptor> localFd = std::make_unique<FileDescriptor>(m_localFd);
-    UnixSocketConnection connection(std::move(localFd));
+    std::unique_ptr<IFileDescriptor> localFd =
+        std::make_unique<FileDescriptor>(m_localFd, m_descriptorSyscalls);
+    UnixSocketConnection connection(std::move(localFd), m_socketSyscalls);
     const std::vector<uint8_t> payload(LARGE_PAYLOAD_BYTES, PAYLOAD_FILL_BYTE);
     const std::unique_ptr<IDeadline> deadline = m_deadlines->startingNow(DEFAULT_TEST_TIMEOUT);
 
@@ -261,8 +294,9 @@ TEST_F(UnixSocketConnectionTest, LargeWriteCompletesWhileReaderDrains)
 
 TEST_F(UnixSocketConnectionTest, IdlePeerReadTimesOutWithEtimedout)
 {
-    std::unique_ptr<IFileDescriptor> localFd = std::make_unique<FileDescriptor>(m_localFd);
-    UnixSocketConnection connection(std::move(localFd));
+    std::unique_ptr<IFileDescriptor> localFd =
+        std::make_unique<FileDescriptor>(m_localFd, m_descriptorSyscalls);
+    UnixSocketConnection connection(std::move(localFd), m_socketSyscalls);
 
     bool timedOut = false;
     try
@@ -279,8 +313,9 @@ TEST_F(UnixSocketConnectionTest, IdlePeerReadTimesOutWithEtimedout)
 
 TEST_F(UnixSocketConnectionTest, SlowLorisPeerHitsTotalDeadlineNotPerReadTimeout)
 {
-    std::unique_ptr<IFileDescriptor> localFd = std::make_unique<FileDescriptor>(m_localFd);
-    UnixSocketConnection connection(std::move(localFd));
+    std::unique_ptr<IFileDescriptor> localFd =
+        std::make_unique<FileDescriptor>(m_localFd, m_descriptorSyscalls);
+    UnixSocketConnection connection(std::move(localFd), m_socketSyscalls);
     std::atomic<bool> stopRequested{false};
     std::thread trickler([this, &stopRequested]() { trickleBytes(m_peerFd, stopRequested); });
     const StopAndJoin joinTrickler(stopRequested, trickler);
@@ -304,8 +339,9 @@ TEST_F(UnixSocketConnectionTest, SlowLorisPeerHitsTotalDeadlineNotPerReadTimeout
 
 TEST_F(UnixSocketConnectionTest, WriteAllDeadlineExpiresWhenPeerNeverReads)
 {
-    std::unique_ptr<IFileDescriptor> localFd = std::make_unique<FileDescriptor>(m_localFd);
-    UnixSocketConnection connection(std::move(localFd));
+    std::unique_ptr<IFileDescriptor> localFd =
+        std::make_unique<FileDescriptor>(m_localFd, m_descriptorSyscalls);
+    UnixSocketConnection connection(std::move(localFd), m_socketSyscalls);
     const std::vector<uint8_t> payload(BLOCKED_WRITE_PAYLOAD_BYTES, PAYLOAD_FILL_BYTE);
     const std::unique_ptr<IDeadline> deadline = m_deadlines->startingNow(BLOCKED_WRITE_TIMEOUT);
     const auto start = std::chrono::steady_clock::now();
@@ -324,3 +360,166 @@ TEST_F(UnixSocketConnectionTest, WriteAllDeadlineExpiresWhenPeerNeverReads)
     EXPECT_GE(elapsed, BLOCKED_WRITE_TIMEOUT);
     EXPECT_LT(elapsed, BLOCKED_WRITE_TIMEOUT + DEADLINE_UPPER_MARGIN);
 }
+
+using TransferResult = SyscallResult<std::size_t>;
+
+class UnixSocketConnectionSyscallsTest : public ::testing::Test
+{
+protected:
+    static TransferResult transferFailure(std::errc error)
+    {
+        return TransferResult::failure(std::make_error_code(error));
+    }
+
+    static auto deliver(const std::vector<uint8_t>& chunk)
+    {
+        return [chunk](int, std::span<uint8_t> destination) -> TransferResult {
+            std::copy(chunk.begin(), chunk.end(), destination.begin());
+            return TransferResult::success(chunk.size());
+        };
+    }
+
+    auto acceptUpTo(std::size_t byteCount)
+    {
+        return [this, byteCount](int, std::span<const uint8_t> source) -> TransferResult {
+            const std::size_t taken = std::min(byteCount, source.size());
+            m_sentBytes.insert(m_sentBytes.end(), source.begin(), source.begin() + taken);
+            return TransferResult::success(taken);
+        };
+    }
+
+    std::unique_ptr<UnixSocketConnection> buildConnection()
+    {
+        std::unique_ptr<MockFileDescriptor> connectedFd = std::make_unique<MockFileDescriptor>();
+        EXPECT_CALL(*connectedFd, value()).WillRepeatedly(Return(FAKE_CONNECTED_FD));
+        EXPECT_CALL(*connectedFd, waitUntilReady(_, _)).WillRepeatedly(Return());
+        return std::make_unique<UnixSocketConnection>(std::move(connectedFd), m_syscalls);
+    }
+
+    static int errorValueOf(const std::function<void()>& operation)
+    {
+        try
+        {
+            operation();
+        }
+        catch (const std::system_error& error)
+        {
+            return error.code().value();
+        }
+        return NO_ERROR_CAUGHT;
+    }
+
+    std::shared_ptr<MockSocketSyscalls> m_syscalls = std::make_shared<MockSocketSyscalls>();
+    MockDeadline m_deadline;
+    std::vector<uint8_t> m_sentBytes;
+};
+
+TEST_F(UnixSocketConnectionSyscallsTest, ReadExactlyWaitsForReadableBeforeEachReceive)
+{
+    std::unique_ptr<MockFileDescriptor> connectedFd = std::make_unique<MockFileDescriptor>();
+    EXPECT_CALL(*connectedFd, value()).WillRepeatedly(Return(FAKE_CONNECTED_FD));
+    {
+        const InSequence inOrder;
+        EXPECT_CALL(*connectedFd, waitUntilReady(Readiness::Readable, _));
+        EXPECT_CALL(*m_syscalls, receiveSome(FAKE_CONNECTED_FD, _)).WillOnce(deliver(SHORT_CHUNK));
+        EXPECT_CALL(*connectedFd, waitUntilReady(Readiness::Readable, _));
+        EXPECT_CALL(*m_syscalls, receiveSome(FAKE_CONNECTED_FD, _)).WillOnce(deliver(SHORT_CHUNK));
+    }
+    UnixSocketConnection connection(std::move(connectedFd), m_syscalls);
+
+    EXPECT_EQ(connection.readExactly(FOUR_BYTES, m_deadline).size(), FOUR_BYTES);
+}
+
+TEST_F(UnixSocketConnectionSyscallsTest, ReadExactlyThrowsConnectionClosedWhenReceiveReturnsZero)
+{
+    EXPECT_CALL(*m_syscalls, receiveSome(FAKE_CONNECTED_FD, _))
+        .WillOnce(Return(TransferResult::success(NO_BYTES_TRANSFERRED)));
+    const std::unique_ptr<UnixSocketConnection> connection = buildConnection();
+
+    EXPECT_THROW(static_cast<void>(connection->readExactly(FIVE_BYTES, m_deadline)),
+                 adapter_socket::ConnectionClosedException);
+}
+
+const std::vector<ErrnoCase> RETRYABLE_TRANSFER_ERRORS{
+    {std::errc::resource_unavailable_try_again, "EAGAIN"},
+    {std::errc::operation_would_block, "EWOULDBLOCK"},
+    {std::errc::interrupted, "EINTR"},
+};
+
+const std::vector<ErrnoCase> FATAL_TRANSFER_ERRORS{
+    {std::errc::connection_reset, "ECONNRESET"},     {std::errc::broken_pipe, "EPIPE"},
+    {std::errc::bad_file_descriptor, "EBADF"},       {std::errc::not_connected, "ENOTCONN"},
+    {std::errc::connection_aborted, "ECONNABORTED"},
+};
+
+class UnixSocketConnectionRetryableErrorTest : public UnixSocketConnectionSyscallsTest,
+                                               public ::testing::WithParamInterface<ErrnoCase>
+{
+};
+
+class UnixSocketConnectionFatalErrorTest : public UnixSocketConnectionSyscallsTest,
+                                           public ::testing::WithParamInterface<ErrnoCase>
+{
+};
+
+TEST_P(UnixSocketConnectionRetryableErrorTest, ReadExactlyRetriesAndKeepsAssemblingChunks)
+{
+    {
+        const InSequence inOrder;
+        EXPECT_CALL(*m_syscalls, receiveSome(FAKE_CONNECTED_FD, _)).WillOnce(deliver(FIRST_CHUNK));
+        EXPECT_CALL(*m_syscalls, receiveSome(FAKE_CONNECTED_FD, _))
+            .WillOnce(Return(transferFailure(GetParam().error)));
+        EXPECT_CALL(*m_syscalls, receiveSome(FAKE_CONNECTED_FD, _)).WillOnce(deliver(SECOND_CHUNK));
+    }
+    const std::unique_ptr<UnixSocketConnection> connection = buildConnection();
+
+    EXPECT_EQ(connection->readExactly(FIVE_BYTES, m_deadline), BOTH_CHUNKS);
+}
+
+TEST_P(UnixSocketConnectionRetryableErrorTest, WriteAllRetriesAndResumesAfterPartialSend)
+{
+    {
+        const InSequence inOrder;
+        EXPECT_CALL(*m_syscalls, sendSome(FAKE_CONNECTED_FD, _)).WillOnce(acceptUpTo(TWO_BYTES));
+        EXPECT_CALL(*m_syscalls, sendSome(FAKE_CONNECTED_FD, _))
+            .WillOnce(Return(transferFailure(GetParam().error)));
+        EXPECT_CALL(*m_syscalls, sendSome(FAKE_CONNECTED_FD, _)).WillOnce(acceptUpTo(TWO_BYTES));
+        EXPECT_CALL(*m_syscalls, sendSome(FAKE_CONNECTED_FD, _)).WillOnce(acceptUpTo(TWO_BYTES));
+    }
+    const std::unique_ptr<UnixSocketConnection> connection = buildConnection();
+
+    connection->writeAll(BOTH_CHUNKS, m_deadline);
+
+    EXPECT_EQ(m_sentBytes, BOTH_CHUNKS);
+}
+
+TEST_P(UnixSocketConnectionFatalErrorTest, ReadExactlyThrowsTheReceiveErrno)
+{
+    EXPECT_CALL(*m_syscalls, receiveSome(FAKE_CONNECTED_FD, _))
+        .WillOnce(Return(transferFailure(GetParam().error)));
+    const std::unique_ptr<UnixSocketConnection> connection = buildConnection();
+
+    const int errorValue = errorValueOf([&connection, this]() {
+        static_cast<void>(connection->readExactly(FIVE_BYTES, m_deadline));
+    });
+
+    EXPECT_EQ(errorValue, static_cast<int>(GetParam().error));
+}
+
+TEST_P(UnixSocketConnectionFatalErrorTest, WriteAllThrowsTheSendErrno)
+{
+    EXPECT_CALL(*m_syscalls, sendSome(FAKE_CONNECTED_FD, _))
+        .WillOnce(Return(transferFailure(GetParam().error)));
+    const std::unique_ptr<UnixSocketConnection> connection = buildConnection();
+
+    const int errorValue =
+        errorValueOf([&connection, this]() { connection->writeAll(WRITTEN_BYTES, m_deadline); });
+
+    EXPECT_EQ(errorValue, static_cast<int>(GetParam().error));
+}
+
+INSTANTIATE_TEST_SUITE_P(RetryableErrors, UnixSocketConnectionRetryableErrorTest,
+                         ::testing::ValuesIn(RETRYABLE_TRANSFER_ERRORS), caseName<ErrnoCase>);
+
+INSTANTIATE_TEST_SUITE_P(FatalErrors, UnixSocketConnectionFatalErrorTest,
+                         ::testing::ValuesIn(FATAL_TRANSFER_ERRORS), caseName<ErrnoCase>);

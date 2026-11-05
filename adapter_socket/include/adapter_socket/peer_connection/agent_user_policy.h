@@ -1,8 +1,11 @@
 #ifndef ADAPTER_SOCKET_AGENT_USER_POLICY_H
 #define ADAPTER_SOCKET_AGENT_USER_POLICY_H
 
-#include <adapter_socket/peer_connection/interface_peer_policy.h>
+#include "adapter_socket/peer_connection/interface_peer_policy.h"
+#include "adapter_socket/user_directory/interface_user_directory.h"
+
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -13,7 +16,8 @@ class AgentUserPolicy final : public IPeerPolicy
 public:
     static constexpr const char* DEFAULT_CONFIG_PATH = "/etc/bellerophon/bellerotables-helper.conf";
 
-    explicit AgentUserPolicy(const std::string& configPath = DEFAULT_CONFIG_PATH);
+    explicit AgentUserPolicy(std::unique_ptr<IUserDirectory> userDirectory,
+                             const std::string& configPath = DEFAULT_CONFIG_PATH);
     ~AgentUserPolicy() override = default;
 
     AgentUserPolicy(const AgentUserPolicy&) = delete;
@@ -25,7 +29,6 @@ public:
 
 private:
     [[nodiscard]] static std::string readFile(const std::string& path);
-    [[nodiscard]] static std::optional<uint32_t> resolveUserId(const std::string& userName);
 
     std::optional<uint32_t> m_allowedUserId;
 };

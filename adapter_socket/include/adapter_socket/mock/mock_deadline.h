@@ -1,6 +1,7 @@
 #pragma once
 
-#include <adapter_socket/deadline/interface_deadline.h>
+#include "adapter_socket/deadline/interface_deadline.h"
+
 #include <gmock/gmock.h>
 
 namespace adapter_socket {

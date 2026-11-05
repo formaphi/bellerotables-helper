@@ -1,7 +1,10 @@
 #ifndef ADAPTER_SOCKET_SYSTEMD_ACTIVATION_H
 #define ADAPTER_SOCKET_SYSTEMD_ACTIVATION_H
 
-#include <adapter_socket/activation/interface_socket_activation.h>
+#include "adapter_socket/activation/interface_socket_activation.h"
+#include "adapter_socket/descriptor_syscalls/interface_descriptor_syscalls.h"
+#include "adapter_socket/systemd_daemon/interface_systemd_daemon.h"
+
 #include <memory>
 
 namespace adapter_socket {
@@ -9,7 +12,8 @@ namespace adapter_socket {
 class SystemdActivation final : public ISocketActivation
 {
 public:
-    SystemdActivation() = default;
+    SystemdActivation(std::unique_ptr<ISystemdDaemon> systemdDaemon,
+                      std::shared_ptr<IDescriptorSyscalls> descriptorSyscalls);
     ~SystemdActivation() override = default;
 
     SystemdActivation(const SystemdActivation&) = delete;
@@ -20,7 +24,8 @@ public:
     [[nodiscard]] std::unique_ptr<IFileDescriptor> takeListeningFd() const override;
 
 private:
-    static void enableNonBlocking(int fileDescriptor);
+    std::unique_ptr<ISystemdDaemon> m_systemdDaemon;
+    std::shared_ptr<IDescriptorSyscalls> m_descriptorSyscalls;
 };
 
 } // namespace adapter_socket

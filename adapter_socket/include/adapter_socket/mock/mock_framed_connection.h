@@ -1,6 +1,7 @@
 #pragma once
 
-#include <adapter_socket/framed_connection/interface_framed_connection.h>
+#include "adapter_socket/framed_connection/interface_framed_connection.h"
+
 #include <gmock/gmock.h>
 
 namespace adapter_socket {

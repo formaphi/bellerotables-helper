@@ -1,8 +1,12 @@
-#include <adapter_socket/deadline/steady_deadline.h>
+#include "adapter_socket/deadline/steady_deadline.h"
+
+#include "parameterized_case.h"
+
 #include <chrono>
 #include <cstdint>
 #include <gtest/gtest.h>
 #include <limits>
+#include <vector>
 
 using adapter_socket::SteadyDeadline;
 
@@ -28,22 +32,6 @@ TEST(SteadyDeadlineTest, FutureDeadlinePollTimeoutIsPositiveAndWithinTimeout)
     EXPECT_LE(pollTimeout, FUTURE_TIMEOUT.count());
 }
 
-TEST(SteadyDeadlineTest, ZeroTimeoutIsExpiredAndPollsNothing)
-{
-    const SteadyDeadline deadline(ZERO_TIMEOUT);
-
-    EXPECT_TRUE(deadline.hasExpired());
-    EXPECT_EQ(deadline.pollTimeoutMilliseconds(), NO_POLL_WAIT);
-}
-
-TEST(SteadyDeadlineTest, NegativeTimeoutIsExpiredAndPollsNothing)
-{
-    const SteadyDeadline deadline(NEGATIVE_TIMEOUT);
-
-    EXPECT_TRUE(deadline.hasExpired());
-    EXPECT_EQ(deadline.pollTimeoutMilliseconds(), NO_POLL_WAIT);
-}
-
 TEST(SteadyDeadlineTest, OversizedTimeoutPollTimeoutIsCappedAtIntMax)
 {
     const SteadyDeadline deadline(OVERSIZED_TIMEOUT);
@@ -51,3 +39,29 @@ TEST(SteadyDeadlineTest, OversizedTimeoutPollTimeoutIsCappedAtIntMax)
     EXPECT_FALSE(deadline.hasExpired());
     EXPECT_EQ(deadline.pollTimeoutMilliseconds(), std::numeric_limits<int>::max());
 }
+
+struct ExpiredTimeoutCase
+{
+    std::chrono::milliseconds timeout;
+    const char* name;
+};
+
+const std::vector<ExpiredTimeoutCase> EXPIRED_TIMEOUTS{
+    {ZERO_TIMEOUT, "ZeroTimeout"},
+    {NEGATIVE_TIMEOUT, "NegativeTimeout"},
+};
+
+class SteadyDeadlineExpiredTest : public ::testing::TestWithParam<ExpiredTimeoutCase>
+{
+};
+
+TEST_P(SteadyDeadlineExpiredTest, IsExpiredAndPollsNothing)
+{
+    const SteadyDeadline deadline(GetParam().timeout);
+
+    EXPECT_TRUE(deadline.hasExpired());
+    EXPECT_EQ(deadline.pollTimeoutMilliseconds(), NO_POLL_WAIT);
+}
+
+INSTANTIATE_TEST_SUITE_P(Timeout, SteadyDeadlineExpiredTest, ::testing::ValuesIn(EXPIRED_TIMEOUTS),
+                         caseName<ExpiredTimeoutCase>);

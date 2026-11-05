@@ -1,7 +1,12 @@
-#include <adapter_socket/file_descriptor/file_descriptor.h>
-#include <adapter_socket/file_descriptor/interface_file_descriptor.h>
-#include <adapter_socket/socket_listener/interface_socket_listener.h>
-#include <adapter_socket/socket_listener/unix_socket_listener_factory.h>
+#include "adapter_socket/socket_listener/unix_socket_listener_factory.h"
+
+#include "adapter_socket/descriptor_syscalls/interface_descriptor_syscalls.h"
+#include "adapter_socket/descriptor_syscalls/posix_descriptor_syscalls.h"
+#include "adapter_socket/file_descriptor/file_descriptor.h"
+#include "adapter_socket/file_descriptor/interface_file_descriptor.h"
+#include "adapter_socket/socket_listener/interface_socket_listener.h"
+#include "adapter_socket/socket_syscalls/posix_socket_syscalls.h"
+
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
@@ -16,7 +21,10 @@
 #include <utility>
 
 using adapter_socket::FileDescriptor;
+using adapter_socket::IDescriptorSyscalls;
 using adapter_socket::IFileDescriptor;
+using adapter_socket::PosixDescriptorSyscalls;
+using adapter_socket::PosixSocketSyscalls;
 
 constexpr int DEFAULT_PROTOCOL = 0;
 constexpr int SYSCALL_ERROR = -1;
@@ -69,11 +77,14 @@ protected:
 
 TEST_F(UnixSocketListenerFactoryTest, CreatesListener)
 {
-    const adapter_socket::UnixSocketListenerFactory factory;
+    const std::shared_ptr<IDescriptorSyscalls> descriptorSyscalls =
+        std::make_shared<PosixDescriptorSyscalls>();
+    const adapter_socket::UnixSocketListenerFactory factory(std::make_shared<PosixSocketSyscalls>(),
+                                                            descriptorSyscalls);
     const int listeningFd = createAbstractListeningSocket();
 
     std::unique_ptr<IFileDescriptor> ownedListeningFd =
-        std::make_unique<FileDescriptor>(listeningFd);
+        std::make_unique<FileDescriptor>(listeningFd, descriptorSyscalls);
     const std::unique_ptr<adapter_socket::ISocketListener> listener =
         factory.create(std::move(ownedListeningFd));
 
