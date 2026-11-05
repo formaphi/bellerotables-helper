@@ -26,7 +26,9 @@ bellero-agent  ◀──────────────────  respos
    As demais ficam no backlog para a próxima ativação.
 3. Confere o processo do outro lado com `SO_PEERCRED`: só o usuário do agent é aceito. O usuário vem de
    `/etc/bellerophon/bellerotables-helper.conf` (`agent_user=bellero-agent`); arquivo ausente ou usuário
-   desconhecido recusa toda conexão.
+   desconhecido recusa toda conexão. O uid `PeerCredentials::UNKNOWN_ID` (0, credencial não lida, que também é o
+   root) é sempre recusado, então `agent_user=root` nunca autoriza ninguém: o agent precisa de um usuário próprio
+   sem privilégios.
 4. Lê um frame: 4 bytes de tamanho (big-endian) seguidos do payload. Frames acima de 64 KiB são recusados antes
    de ler o payload. O payload é o JSON canônico do protobuf `{correlation_id, id, desired}`.
 5. Aplica, relê o estado do kernel e encerra. Fase 1: sem resposta, fecha após tratar. Fase 2: um frame de
@@ -34,15 +36,17 @@ bellero-agent  ◀──────────────────  respos
 
 ### Headers POSIX e do sistema usados
 
-A biblioteca `adapter_socket/` concentra as chamadas de sistema, com fds RAII e `errno` convertido em exceção:
+A biblioteca `adapter_socket/` só chama a API C por trás de interfaces (padrão Adapter). Cada header abaixo é
+incluído apenas pelo adapter concreto da sua linha; as classes de domínio recebem a interface por injeção e são
+testadas com mocks. Os adapters devolvem `SyscallResult<T>` / `std::error_code`, e a classe de domínio decide
+entre tentar de novo ou lançar exceção. Detalhes: [docs/syscall-adapters.md](docs/syscall-adapters.md).
 
-| Header | Para quê |
-|--------|----------|
-| `<systemd/sd-daemon.h>` | `sd_listen_fds()`: recebe o socket de escuta do systemd |
-| `<sys/socket.h>` | `accept4`, `recv`, `send`, `getsockopt` (`SO_PEERCRED`) |
-| `<poll.h>` | espera com prazo total de I/O em milissegundos |
-| `<unistd.h>`, `<fcntl.h>` | `close`, `fcntl` (flags do fd) |
-| `<pwd.h>` | `getpwnam_r`: resolve o usuário do agent |
+| Header | Para quê | Interface ← adapter |
+|--------|----------|---------------------|
+| `<systemd/sd-daemon.h>` | `sd_listen_fds()`, `sd_is_socket_unix()`: recebe o socket de escuta do systemd | `ISystemdDaemon` ← `LibsystemdDaemon` |
+| `<sys/socket.h>` | `accept4`, `recv`, `send`, `getsockopt` (`SO_PEERCRED`) | `ISocketSyscalls` ← `PosixSocketSyscalls` |
+| `<poll.h>`, `<unistd.h>`, `<fcntl.h>` | `poll` (espera com prazo), `close`, `fcntl` (flags do fd) | `IDescriptorSyscalls` ← `PosixDescriptorSyscalls` |
+| `<pwd.h>`, `<unistd.h>` | `getpwnam_r`, `sysconf`: resolve o usuário do agent | `IUserDirectory` ← `PosixUserDirectory` |
 
 Por que um stream com tamanho no início, e não UDP ou ZeroMQ: [docs/socket-stream-and-framing.md](docs/socket-stream-and-framing.md).
 Papéis de servidor e cliente: [docs/socket-roles.md](docs/socket-roles.md). Entrada única da biblioteca
@@ -105,6 +109,13 @@ Tipos usados: `feat`, `fix`, `refactor`, `test`, `build`, `docs`, `chore`.
 Fluxo de branches: a feature sai da `develop` e volta por squash merge. A `develop` só entra na `master`
 depois que o slice passa na validação ponta a ponta do `EndToEnd`. Uma branch só é apagada depois que o
 trabalho chega à `master`.
+
+## Padrão de include
+
+Primeiro o header do próprio arquivo; depois os headers do projeto com aspas (`#include "adapter_socket/..."`);
+por fim tudo o que vem de fora do projeto com `<>` (C/POSIX, biblioteca padrão, gtest, libsystemd). Cada bloco em
+ordem alfabética. O `make format` aplica a ordem; o `make format-check` também recusa header do projeto com `<>`.
+Detalhes: [docs/build/clang-format.md](docs/build/clang-format.md).
 
 ## Padrão de comentário
 
