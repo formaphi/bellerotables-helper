@@ -34,5 +34,6 @@ add_subdirectory(adapter_socket)
 add_subdirectory(tools/protoc-gen-bvalidate)
 add_subdirectory(contracts_cpp)
 add_subdirectory(request_parser)
+add_subdirectory(adapter_iptc)
 
 add_executable(iptables-manager main.cpp)
