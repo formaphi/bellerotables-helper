@@ -277,6 +277,8 @@ TEST_F(SystemdActivationSyscallsTest, ListenFdsFailureThrowsSystemError)
         .WillOnce(Return(
             SyscallResult<std::vector<int>>::failure(failure(std::errc::bad_file_descriptor))));
     EXPECT_CALL(*m_daemon, isListeningUnixStream(_)).Times(0);
+    EXPECT_CALL(*m_descriptorSyscalls, enableNonBlocking(_)).Times(0);
+    EXPECT_CALL(*m_descriptorSyscalls, closeDescriptor(_)).Times(0);
 
     EXPECT_EQ(takeErrorValue(), EBADF);
 }
@@ -286,6 +288,8 @@ TEST_F(SystemdActivationSyscallsTest, MoreThanOneActivatedSocketIsRejected)
     EXPECT_CALL(*m_daemon, takeListenFds())
         .WillOnce(Return(activated({FAKE_ACTIVATED_FD, SECOND_FAKE_ACTIVATED_FD})));
     EXPECT_CALL(*m_daemon, isListeningUnixStream(_)).Times(0);
+    EXPECT_CALL(*m_descriptorSyscalls, enableNonBlocking(_)).Times(0);
+    EXPECT_CALL(*m_descriptorSyscalls, closeDescriptor(_)).Times(0);
 
     std::string message;
     try

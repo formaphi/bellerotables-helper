@@ -366,6 +366,16 @@ using TransferResult = SyscallResult<std::size_t>;
 class UnixSocketConnectionSyscallsTest : public ::testing::Test
 {
 protected:
+    /* LEARN: a connection only transfers bytes; accepting and reading credentials belong to the
+       listener. Each test also rules out the other direction: a read never sends, a write never
+       receives.
+    */
+    void SetUp() override
+    {
+        EXPECT_CALL(*m_syscalls, acceptConnection(_)).Times(0);
+        EXPECT_CALL(*m_syscalls, readPeerCredentials(_)).Times(0);
+    }
+
     static TransferResult transferFailure(std::errc error)
     {
         return TransferResult::failure(std::make_error_code(error));
@@ -416,6 +426,7 @@ protected:
 
 TEST_F(UnixSocketConnectionSyscallsTest, ReadExactlyWaitsForReadableBeforeEachReceive)
 {
+    EXPECT_CALL(*m_syscalls, sendSome(_, _)).Times(0);
     std::unique_ptr<MockFileDescriptor> connectedFd = std::make_unique<MockFileDescriptor>();
     EXPECT_CALL(*connectedFd, value()).WillRepeatedly(Return(FAKE_CONNECTED_FD));
     {
@@ -432,6 +443,7 @@ TEST_F(UnixSocketConnectionSyscallsTest, ReadExactlyWaitsForReadableBeforeEachRe
 
 TEST_F(UnixSocketConnectionSyscallsTest, ReadExactlyThrowsConnectionClosedWhenReceiveReturnsZero)
 {
+    EXPECT_CALL(*m_syscalls, sendSome(_, _)).Times(0);
     EXPECT_CALL(*m_syscalls, receiveSome(FAKE_CONNECTED_FD, _))
         .WillOnce(Return(TransferResult::success(NO_BYTES_TRANSFERRED)));
     const std::unique_ptr<UnixSocketConnection> connection = buildConnection();
@@ -464,6 +476,7 @@ class UnixSocketConnectionFatalErrorTest : public UnixSocketConnectionSyscallsTe
 
 TEST_P(UnixSocketConnectionRetryableErrorTest, ReadExactlyRetriesAndKeepsAssemblingChunks)
 {
+    EXPECT_CALL(*m_syscalls, sendSome(_, _)).Times(0);
     {
         const InSequence inOrder;
         EXPECT_CALL(*m_syscalls, receiveSome(FAKE_CONNECTED_FD, _)).WillOnce(deliver(FIRST_CHUNK));
@@ -478,6 +491,7 @@ TEST_P(UnixSocketConnectionRetryableErrorTest, ReadExactlyRetriesAndKeepsAssembl
 
 TEST_P(UnixSocketConnectionRetryableErrorTest, WriteAllRetriesAndResumesAfterPartialSend)
 {
+    EXPECT_CALL(*m_syscalls, receiveSome(_, _)).Times(0);
     {
         const InSequence inOrder;
         EXPECT_CALL(*m_syscalls, sendSome(FAKE_CONNECTED_FD, _)).WillOnce(acceptUpTo(TWO_BYTES));
@@ -495,6 +509,7 @@ TEST_P(UnixSocketConnectionRetryableErrorTest, WriteAllRetriesAndResumesAfterPar
 
 TEST_P(UnixSocketConnectionFatalErrorTest, ReadExactlyThrowsTheReceiveErrno)
 {
+    EXPECT_CALL(*m_syscalls, sendSome(_, _)).Times(0);
     EXPECT_CALL(*m_syscalls, receiveSome(FAKE_CONNECTED_FD, _))
         .WillOnce(Return(transferFailure(GetParam().error)));
     const std::unique_ptr<UnixSocketConnection> connection = buildConnection();
@@ -508,6 +523,7 @@ TEST_P(UnixSocketConnectionFatalErrorTest, ReadExactlyThrowsTheReceiveErrno)
 
 TEST_P(UnixSocketConnectionFatalErrorTest, WriteAllThrowsTheSendErrno)
 {
+    EXPECT_CALL(*m_syscalls, receiveSome(_, _)).Times(0);
     EXPECT_CALL(*m_syscalls, sendSome(FAKE_CONNECTED_FD, _))
         .WillOnce(Return(transferFailure(GetParam().error)));
     const std::unique_ptr<UnixSocketConnection> connection = buildConnection();

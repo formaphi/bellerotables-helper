@@ -1,0 +1,7 @@
+syntax = "proto3";
+package bvalidate.unsupported;
+import "buf/validate/validate.proto";
+message M {
+  option (buf.validate.message).cel = {id: "x", expression: "true"};
+  string name = 1;
+}

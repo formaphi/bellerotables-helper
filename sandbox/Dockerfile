@@ -15,14 +15,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsystemd-dev \
     iproute2 \
     clang-format \
-    clang-tidy \
     valgrind \
     lcov \
     util-linux \
  && rm -rf /var/lib/apt/lists/*
 
-# CMake 3.28+ and Conan 2 from pip; the apt versions lag behind.
-RUN pip3 install --break-system-packages --quiet --upgrade cmake conan
+# CMake 3.28+ and Conan 2 from pip; the apt versions lag behind. clang-tidy too: Ubuntu 24.04's
+# clang-tidy 18 defines __cpp_concepts as 201907L, and libstdc++ 13 hides std::expected below
+# 202002L, so every source using std::expected fails tidy with "no template named 'expected'".
+RUN pip3 install --break-system-packages --quiet --upgrade cmake conan "clang-tidy==19.1.0"
 
 # Pre-builds the Conan dependencies while the image has network access. The cache stays in
 # /root/.conan2 inside the image; the compose file does not mount over it.
