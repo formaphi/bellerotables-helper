@@ -24,6 +24,11 @@ COVERAGE_DIR := $(WORKSPACE)/coverage-reports
 
 SANITIZER_FLAGS = -fno-omit-frame-pointer -g
 
+# Conan's libprotobuf is not ASan-built, but protobuf's headers annotate RepeatedField for ASan;
+# the mix reports a false container-overflow in every binary holding generated protobuf code
+# (tests, and protoc-gen-bvalidate while it runs during the build).
+ASAN_ENV := env ASAN_OPTIONS=detect_container_overflow=0
+
 # $(1) = output folder
 define conan_install
 	$(RUN) bash -c 'cd $(WORKSPACE) && conan install . --build=missing --no-remote \
@@ -127,6 +132,7 @@ test-unit:
 	  lcov --capture --directory $(UNIT_BUILD_DIR) --output-file $(COVERAGE_DIR)/coverage.info \
 	       --ignore-errors mismatch,mismatch,gcov,gcov && \
 	  lcov --remove $(COVERAGE_DIR)/coverage.info "/usr/*" "/root/.conan2/*" "*/test/*" \
+	       "*_generated/*" "*/protoc-gen-bvalidate/src/*" \
 	       --output-file $(COVERAGE_DIR)/coverage.filtered.info && \
 	  genhtml $(COVERAGE_DIR)/coverage.filtered.info --output-directory $(COVERAGE_DIR)/html \
 	          --title "bellerotables-helper coverage" --legend --demangle-cpp'
@@ -155,16 +161,16 @@ configure-asan: conan-install-asan
 	  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
 
 build-asan:
-	$(RUN) cmake --build $(ASAN_BUILD_DIR)
+	$(RUN) $(ASAN_ENV) cmake --build $(ASAN_BUILD_DIR)
 
 rebuild-asan: clean-asan configure-asan build-asan
 
 test-asan:
-	$(RUN) ctest --test-dir $(ASAN_BUILD_DIR) --output-on-failure
+	$(RUN) $(ASAN_ENV) ctest --test-dir $(ASAN_BUILD_DIR) --output-on-failure
 
 test-one-asan:
 	@test -n "$(PATTERN)" || { echo "Usage: make test-one-asan PATTERN=pattern"; exit 1; }
-	$(RUN) ctest --test-dir $(ASAN_BUILD_DIR) --output-on-failure -R $(PATTERN)
+	$(RUN) $(ASAN_ENV) ctest --test-dir $(ASAN_BUILD_DIR) --output-on-failure -R $(PATTERN)
 
 clean-asan:
 	$(RUN) rm -rf $(ASAN_BUILD_DIR)
@@ -200,6 +206,7 @@ clean-tsan:
 # -- Valgrind memcheck --------------------------------------------------------
 # No special compiler flags: Valgrind instruments the binary at run time. ctest -T memcheck wraps
 # every test in MEMORYCHECK_COMMAND; --error-exitcode=1 makes any finding fail the target.
+# Tests labelled no_memcheck run a third-party binary, not ours, and are skipped here.
 
 conan-install-valgrind: check-contracts
 	$(call conan_install,$(VALGRIND_BUILD_DIR))
@@ -218,11 +225,11 @@ build-valgrind:
 rebuild-valgrind: clean-valgrind configure-valgrind build-valgrind
 
 test-valgrind:
-	$(RUN) ctest --test-dir $(VALGRIND_BUILD_DIR) -T memcheck --output-on-failure
+	$(RUN) ctest --test-dir $(VALGRIND_BUILD_DIR) -T memcheck -LE no_memcheck --output-on-failure
 
 test-one-valgrind:
 	@test -n "$(PATTERN)" || { echo "Usage: make test-one-valgrind PATTERN=pattern"; exit 1; }
-	$(RUN) ctest --test-dir $(VALGRIND_BUILD_DIR) -T memcheck --output-on-failure -R $(PATTERN)
+	$(RUN) ctest --test-dir $(VALGRIND_BUILD_DIR) -T memcheck -LE no_memcheck --output-on-failure -R $(PATTERN)
 
 clean-valgrind:
 	$(RUN) rm -rf $(VALGRIND_BUILD_DIR)
@@ -230,7 +237,7 @@ clean-valgrind:
 # -- clang-format / clang-tidy ------------------------------------------------
 # Targets that rewrite sources run as the host user: root without CAP_DAC_OVERRIDE cannot write host files.
 
-SOURCE_DIRS    := $(wildcard adapter_*)
+SOURCE_DIRS    := $(wildcard adapter_*) domain request_parser tools contracts_cpp
 FORMAT_SOURCES := main.cpp $(if $(SOURCE_DIRS),$(shell find $(SOURCE_DIRS) -name '*.cpp' -o -name '*.h'))
 TIDY_SOURCES   := main.cpp $(if $(SOURCE_DIRS),$(shell find $(SOURCE_DIRS) -path '*/test' -prune -o -name '*.cpp' -print))
 
@@ -243,8 +250,8 @@ format-check: include-check
 # clang-format sorts and groups includes but cannot turn <> into "", so project headers written
 # with <> are caught here.
 include-check:
-	@if grep -nE '^[[:space:]]*#[[:space:]]*include[[:space:]]*<adapter_[a-z_]+/' $(FORMAT_SOURCES); then \
-	  echo 'Project headers must be included with quotes: #include "adapter_.../..."'; exit 1; fi
+	@if grep -nE '^[[:space:]]*#[[:space:]]*include[[:space:]]*<(adapter_[a-z_]+|domain|request_parser)/' $(FORMAT_SOURCES); then \
+	  echo 'Project headers must be included with quotes: #include "adapter_.../...", "domain/..." or "request_parser/..."'; exit 1; fi
 
 tidy:
 	$(RUN) clang-tidy -p $(BUILD_DIR) $(TIDY_SOURCES)

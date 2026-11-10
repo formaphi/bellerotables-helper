@@ -269,6 +269,15 @@ TEST_F(UnixSocketListenerTest, DestructorClosesListeningFd)
 class UnixSocketListenerSyscallsTest : public ::testing::Test
 {
 protected:
+    /* LEARN: acceptOne only accepts and reads the peer's credentials. No payload byte moves before
+       the endpoint has authorized the peer.
+    */
+    void SetUp() override
+    {
+        EXPECT_CALL(*m_socketSyscalls, receiveSome(_, _)).Times(0);
+        EXPECT_CALL(*m_socketSyscalls, sendSome(_, _)).Times(0);
+    }
+
     static SyscallResult<int> acceptFailure(std::errc error)
     {
         return SyscallResult<int>::failure(std::make_error_code(error));

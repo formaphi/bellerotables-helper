@@ -91,9 +91,16 @@ protected:
             SocketTimeoutsDto::create(ACCEPT_TIMEOUT, CONNECTION_TIMEOUT));
     }
 
+    /* LEARN: the endpoint only accepts and authorizes. It never reads or writes a byte: a refused
+       peer gets nothing, and an allowed peer's bytes belong to whoever reads the returned
+       IFramedConnection.
+    */
     static AcceptedConnectionDto acceptedFrom(const PeerCredentials& peer)
     {
-        return AcceptedConnectionDto{std::make_unique<MockSocketConnection>(), peer};
+        std::unique_ptr<MockSocketConnection> connection = std::make_unique<MockSocketConnection>();
+        EXPECT_CALL(*connection, readExactly(_, _)).Times(0);
+        EXPECT_CALL(*connection, writeAll(_, _)).Times(0);
+        return AcceptedConnectionDto{std::move(connection), peer};
     }
 
     void expectActivatedFdReachesFactory()
@@ -129,6 +136,7 @@ protected:
 TEST_F(SocketEndpointTest, PassesActivatedFdToListenerFactory)
 {
     expectActivatedFdReachesFactory();
+    EXPECT_CALL(*m_listener, acceptOne(_)).Times(0);
 
     const std::unique_ptr<SocketEndpoint> endpoint = buildEndpoint();
 
@@ -192,6 +200,7 @@ TEST_F(SocketEndpointTest, AcceptFailurePropagatesFromAcceptAuthorized)
     EXPECT_CALL(*m_listener, acceptOne(_))
         .WillOnce(Throw(
             std::system_error(ACCEPT_FAILURE_ERRNO, std::generic_category(), ACCEPT_OPERATION)));
+    EXPECT_CALL(*m_peerPolicy, isAllowed(_)).Times(0);
 
     const std::unique_ptr<SocketEndpoint> endpoint = buildEndpoint();
 

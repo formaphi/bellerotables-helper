@@ -24,6 +24,15 @@ if(ENABLE_COVERAGE AND BUILD_TESTING)
     string(APPEND CMAKE_EXE_LINKER_FLAGS " --coverage")
 endif()
 
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+include(BellerophonProto)
+
+set(BELLEROPHON_CONTRACTS_PROTO_DIR "${PROJECT_SOURCE_DIR}/contracts/proto")
+
+add_subdirectory(domain)
 add_subdirectory(adapter_socket)
+add_subdirectory(tools/protoc-gen-bvalidate)
+add_subdirectory(contracts_cpp)
+add_subdirectory(request_parser)
 
 add_executable(iptables-manager main.cpp)

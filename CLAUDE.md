@@ -99,7 +99,7 @@ Not `SOCK_SEQPACKET`: Java's Unix-domain sockets are stream-only.
 | Component | Ring | Responsibility |
 |-----------|------|----------------|
 | Socket lib (`adapter_socket/`) | 4 | activation fd, single `accept()`, peer-credential check, length-prefixed read/write; RAII fds, errno → exception |
-| Parser | 3 | protobuf facade (hub `protobuf-consumer-facade.md`): JSON → generated message → protovalidate → clean domain type. Outgoing (reply) serialization arrives in phase 2 |
+| Parser | 3 | protobuf facade (hub `protobuf-consumer-facade.md`): JSON → generated message → generated `bvalidate` rules (not protovalidate-cc, see [docs/protovalidate-runtime.md](docs/protovalidate-runtime.md)) → clean domain type. Outgoing (reply) serialization arrives in phase 2 |
 | Controller | 3 | reads one frame, parses, calls the use case, which drives `adapter_iptc`; maps failures to the reply (phase 2) |
 
 ```
@@ -157,7 +157,8 @@ make help                            # every target
   image pre-builds the cache and `conan install` runs with `--no-remote`
 - System (apt, in the image): `libiptc-dev` (link `ip4tc`), `libxtables-dev`, `libsystemd-dev` (for
   `sd_listen_fds()`), legacy `iptables` as the default alternative
-- Coming with the parser: protobuf (version must match the `protoc` used by `contracts`)
+- Conan: `protobuf/4.25.3` (version must match the `protoc` used by `contracts`); `contracts` is a submodule
+  (`git submodule update --init`), and the build generates the C++ classes and the `bvalidate` validators from it
 
 ## Code style
 

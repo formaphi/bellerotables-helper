@@ -16,7 +16,7 @@ Checks: >
 
 WarningsAsErrors: ''
 
-HeaderFilterRegex: '(adapter_iptc|adapter_socket)/include/.*'
+HeaderFilterRegex: '(adapter_iptc|adapter_socket|domain|request_parser)/include/.*'
 
 FormatStyle: file
 

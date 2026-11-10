@@ -8,6 +8,8 @@ class BellerotablesHelper(ConanFile):
 
     def requirements(self):
         self.requires("nlohmann_json/3.11.3")
+        self.requires("protobuf/4.25.3")
+        self.tool_requires("protobuf/<host_version>")
         self.test_requires("gtest/1.14.0")
 
     def layout(self):

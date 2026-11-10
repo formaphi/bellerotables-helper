@@ -1,5 +1,6 @@
 [settings]
 build_type=Release
+arch=x86_64
 compiler=gcc
 compiler.cppstd=23
 compiler.libcxx=libstdc++11

@@ -1,0 +1,37 @@
+syntax = "proto3";
+package bvalidate.fixture;
+
+import "buf/validate/validate.proto";
+import "bellerophon/ngfw/shared/logging.proto";
+
+// Generator fixture: shapes the contract does not use yet (repeated, map, oneof, nested type,
+// C++ keyword field, cross-library reference). Not part of the contract.
+
+message Leaf {
+  int32 count = 1 [(buf.validate.field).int32.gte = 1];
+}
+
+message NoRules {
+  string note = 1;
+}
+
+message Outer {
+  message Inner {
+    string name = 1 [(buf.validate.field).string.max_len = 3];
+  }
+}
+
+message Tree {
+  Leaf single                = 1;
+  repeated Leaf items        = 2;
+  map<string, Leaf> by_name  = 3;
+  map<int32, Leaf> by_id     = 4;
+  oneof choice {
+    string token = 5 [(buf.validate.field).string.uuid = true];
+    Leaf chosen  = 6;
+  }
+  NoRules plain                        = 7;
+  Outer.Inner nested                   = 8;
+  string class                         = 9 [(buf.validate.field).string.max_len = 2];
+  bellerophon.ngfw.shared.Logging log  = 10;
+}
