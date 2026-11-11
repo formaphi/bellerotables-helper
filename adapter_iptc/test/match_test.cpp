@@ -1,10 +1,17 @@
-#include <adapter_iptc/matchs/conntrack_match.h>
-#include <adapter_iptc/matchs/hashlimit_match.h>
-#include <adapter_iptc/matchs/mark_match.h>
-#include <adapter_iptc/matchs/tcp_match.h>
-#include <adapter_iptc/matchs/udp_match.h>
+#include "adapter_iptc/builder/rule_builder.h"
+#include "adapter_iptc/dtos/mark.h"
+#include "adapter_iptc/ipt_entry_ptr.h"
+#include "adapter_iptc/matchs/conntrack_match.h"
+#include "adapter_iptc/matchs/hashlimit_match.h"
+#include "adapter_iptc/matchs/mark_match.h"
+#include "adapter_iptc/matchs/tcp_match.h"
+#include "adapter_iptc/matchs/udp_match.h"
+#include "adapter_iptc/targets/standard_target.h"
+#include "parameterized_case.h"
+
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <gtest/gtest.h>
 #include <linux/in.h>
 #include <linux/netfilter/nf_conntrack_common.h>
@@ -13,12 +20,16 @@
 #include <linux/netfilter/xt_hashlimit.h>
 #include <linux/netfilter/xt_mark.h>
 #include <linux/netfilter/xt_tcpudp.h>
+#include <linux/netfilter_ipv4/ip_tables.h>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace {
 
 constexpr uint8_t ZERO_FILL_BYTE = 0;
+constexpr uint32_t OTHER_MARK = 0x5678;
 
 constexpr uint32_t SAMPLE_MARK = 0x1234;
 constexpr uint32_t SAMPLE_MARK_MASK = 0xff00;
@@ -56,6 +67,12 @@ const xt_entry_match* headerOf(const std::vector<unsigned char>& buffer)
     return reinterpret_cast<const xt_entry_match*>(buffer.data());
 }
 
+std::shared_ptr<HashlimitMatch> sampleHashlimit()
+{
+    return std::make_shared<HashlimitMatch>(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE,
+                                            SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
+}
+
 std::vector<unsigned char> writeToZeroedBuffer(const TemplateMatch& match)
 {
     std::vector<unsigned char> buffer(match.size(), ZERO_FILL_BYTE);
@@ -63,226 +80,229 @@ std::vector<unsigned char> writeToZeroedBuffer(const TemplateMatch& match)
     return buffer;
 }
 
+/* LEARN: xt_tcp and xt_udp are different structs that both start with the source and the
+   destination port bounds; each case reads them through its own struct.
+*/
+struct PortBounds
+{
+    uint16_t sourceMin;
+    uint16_t sourceMax;
+    uint16_t destinationMin;
+    uint16_t destinationMax;
+};
+
+PortBounds tcpPortsOf(const unsigned char* data)
+{
+    const auto* info = reinterpret_cast<const xt_tcp*>(data);
+    return {info->spts[0], info->spts[1], info->dpts[0], info->dpts[1]};
+}
+
+PortBounds udpPortsOf(const unsigned char* data)
+{
+    const auto* info = reinterpret_cast<const xt_udp*>(data);
+    return {info->spts[0], info->spts[1], info->dpts[0], info->dpts[1]};
+}
+
+IptEntryPtr acceptEntryWith(const std::vector<std::shared_ptr<TemplateMatch>>& matches)
+{
+    RuleBuilder builder;
+    for (const std::shared_ptr<TemplateMatch>& match : matches)
+    {
+        builder.setMatch(match);
+    }
+    return builder.setTarget(std::make_shared<StandardTarget>(StandardTarget::Verdict::ACCEPT))
+        .build();
+}
+
+IptEntryPtr markEntry()
+{
+    return acceptEntryWith({std::make_shared<MarkMatch>(SAMPLE_MARK)});
+}
+
+xt_entry_match* firstMatchOf(ipt_entry& entry)
+{
+    return reinterpret_cast<xt_entry_match*>(entry.elems);
+}
+
+xt_mark_mtinfo1* markInfoOf(ipt_entry& entry)
+{
+    return reinterpret_cast<xt_mark_mtinfo1*>(firstMatchOf(entry)->data);
+}
+
 } // namespace
 
-TEST(MarkMatchTest, SizeCoversMatchHeaderAndMarkInfo)
+/* LEARN: every match starts with the same xt_entry_match header (name, revision, size) followed
+   by its own payload; tcp and udp also set the rule's protocol, the others leave it to 0.
+*/
+struct MatchHeaderCase
 {
-    const MarkMatch match(SAMPLE_MARK);
+    std::shared_ptr<TemplateMatch> (*makeMatch)();
+    const char* expectedName;
+    uint8_t expectedRevision;
+    std::size_t expectedPayloadBytes;
+    uint8_t expectedProtocol;
+    const char* name;
+};
 
-    EXPECT_EQ(match.size(), XT_ALIGN(sizeof(xt_entry_match) + sizeof(xt_mark_mtinfo1)));
+const std::vector<MatchHeaderCase> MATCH_HEADER_CASES{
+    {[]() -> std::shared_ptr<TemplateMatch> { return std::make_shared<MarkMatch>(SAMPLE_MARK); },
+     MARK_NAME, MARK_REVISION, sizeof(xt_mark_mtinfo1), NO_PROTOCOL, "Mark"},
+    {[]() -> std::shared_ptr<TemplateMatch> { return std::make_shared<TcpMatch>(SAMPLE_PORT); },
+     TCP_NAME, PORT_MATCH_REVISION, sizeof(xt_tcp), IPPROTO_TCP, "Tcp"},
+    {[]() -> std::shared_ptr<TemplateMatch> { return std::make_shared<UdpMatch>(SAMPLE_PORT); },
+     UDP_NAME, PORT_MATCH_REVISION, sizeof(xt_udp), IPPROTO_UDP, "Udp"},
+    {[]() -> std::shared_ptr<TemplateMatch> {
+         return std::make_shared<ConntrackMatch>(ConntrackMatch::State::ESTABLISHED_RELATED);
+     },
+     CONNTRACK_NAME, CONNTRACK_REVISION, sizeof(xt_conntrack_mtinfo3), NO_PROTOCOL, "Conntrack"},
+    {[]() -> std::shared_ptr<TemplateMatch> { return sampleHashlimit(); }, HASHLIMIT_NAME,
+     HASHLIMIT_REVISION, sizeof(xt_hashlimit_mtinfo1), NO_PROTOCOL, "Hashlimit"},
+};
+
+class MatchHeaderTest : public ::testing::TestWithParam<MatchHeaderCase>
+{
+};
+
+TEST_P(MatchHeaderTest, SizeCoversHeaderAndPayload)
+{
+    const std::shared_ptr<TemplateMatch> match = GetParam().makeMatch();
+    const std::size_t unalignedBytes = sizeof(xt_entry_match) + GetParam().expectedPayloadBytes;
+
+    EXPECT_EQ(match->size(), XT_ALIGN(unalignedBytes));
 }
 
-TEST(MarkMatchTest, WriteFillsHeaderWithMarkNameRevisionAndSize)
+TEST_P(MatchHeaderTest, WriteFillsHeaderWithNameRevisionAndSize)
 {
-    const MarkMatch match(SAMPLE_MARK);
-    const auto buffer = writeToZeroedBuffer(match);
+    const std::shared_ptr<TemplateMatch> match = GetParam().makeMatch();
+    const auto buffer = writeToZeroedBuffer(*match);
     const xt_entry_match* header = headerOf(buffer);
 
-    EXPECT_STREQ(header->u.user.name, MARK_NAME);
-    EXPECT_EQ(header->u.user.revision, MARK_REVISION);
-    EXPECT_EQ(static_cast<std::size_t>(header->u.user.match_size), match.size());
+    EXPECT_STREQ(header->u.user.name, GetParam().expectedName);
+    EXPECT_EQ(header->u.user.revision, GetParam().expectedRevision);
+    EXPECT_EQ(static_cast<std::size_t>(header->u.user.match_size), match->size());
 }
 
-TEST(MarkMatchTest, WriteStoresMarkAndExplicitMask)
+TEST_P(MatchHeaderTest, DeclaresItsProtocol)
 {
-    const MarkMatch match(SAMPLE_MARK, SAMPLE_MARK_MASK);
-    const auto buffer = writeToZeroedBuffer(match);
+    const std::shared_ptr<TemplateMatch> match = GetParam().makeMatch();
+
+    EXPECT_EQ(match->protocol(), GetParam().expectedProtocol);
+}
+
+INSTANTIATE_TEST_SUITE_P(Match, MatchHeaderTest, ::testing::ValuesIn(MATCH_HEADER_CASES),
+                         caseName<MatchHeaderCase>);
+
+struct MarkWriteCase
+{
+    MarkMatch match;
+    uint32_t expectedMark;
+    uint32_t expectedMask;
+    const char* name;
+};
+
+const std::vector<MarkWriteCase> MARK_WRITE_CASES{
+    {MarkMatch(SAMPLE_MARK, SAMPLE_MARK_MASK), SAMPLE_MARK, SAMPLE_MARK_MASK, "ExplicitMask"},
+    {MarkMatch(SAMPLE_MARK), SAMPLE_MARK, FULL_MARK_MASK, "DefaultMaskCoversAllMarkBits"},
+};
+
+class MarkWriteTest : public ::testing::TestWithParam<MarkWriteCase>
+{
+};
+
+TEST_P(MarkWriteTest, StoresMarkAndMask)
+{
+    const auto buffer = writeToZeroedBuffer(GetParam().match);
     const auto* info = reinterpret_cast<const xt_mark_mtinfo1*>(headerOf(buffer)->data);
 
-    EXPECT_EQ(info->mark, SAMPLE_MARK);
-    EXPECT_EQ(info->mask, SAMPLE_MARK_MASK);
+    EXPECT_EQ(info->mark, GetParam().expectedMark);
+    EXPECT_EQ(info->mask, GetParam().expectedMask);
 }
 
-TEST(MarkMatchTest, DefaultMaskCoversAllMarkBits)
-{
-    const MarkMatch match(SAMPLE_MARK);
-    const auto buffer = writeToZeroedBuffer(match);
-    const auto* info = reinterpret_cast<const xt_mark_mtinfo1*>(headerOf(buffer)->data);
+INSTANTIATE_TEST_SUITE_P(MarkMatch, MarkWriteTest, ::testing::ValuesIn(MARK_WRITE_CASES),
+                         caseName<MarkWriteCase>);
 
-    EXPECT_EQ(info->mask, FULL_MARK_MASK);
+/* LEARN: tcp and udp match only destination ports; the source bounds always span every port.
+   A single port is written as a range of one.
+*/
+struct PortCase
+{
+    std::shared_ptr<TemplateMatch> (*makeMatch)();
+    PortBounds (*portsOf)(const unsigned char* data);
+    uint16_t expectedDestinationMin;
+    uint16_t expectedDestinationMax;
+    const char* name;
+};
+
+const std::vector<PortCase> PORT_CASES{
+    {[]() -> std::shared_ptr<TemplateMatch> { return std::make_shared<TcpMatch>(SAMPLE_PORT); },
+     tcpPortsOf, SAMPLE_PORT, SAMPLE_PORT, "TcpSinglePort"},
+    {[]() -> std::shared_ptr<TemplateMatch> {
+         return std::make_shared<TcpMatch>(SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX);
+     },
+     tcpPortsOf, SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX, "TcpPortRange"},
+    {[]() -> std::shared_ptr<TemplateMatch> { return std::make_shared<UdpMatch>(SAMPLE_PORT); },
+     udpPortsOf, SAMPLE_PORT, SAMPLE_PORT, "UdpSinglePort"},
+    {[]() -> std::shared_ptr<TemplateMatch> {
+         return std::make_shared<UdpMatch>(SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX);
+     },
+     udpPortsOf, SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX, "UdpPortRange"},
+};
+
+class PortMatchTest : public ::testing::TestWithParam<PortCase>
+{
+};
+
+TEST_P(PortMatchTest, WritesDestinationBoundsAndEverySourcePort)
+{
+    const std::shared_ptr<TemplateMatch> match = GetParam().makeMatch();
+    const auto buffer = writeToZeroedBuffer(*match);
+    const PortBounds ports = GetParam().portsOf(headerOf(buffer)->data);
+
+    EXPECT_EQ(ports.destinationMin, GetParam().expectedDestinationMin);
+    EXPECT_EQ(ports.destinationMax, GetParam().expectedDestinationMax);
+    EXPECT_EQ(ports.sourceMin, FULL_PORT_RANGE_MIN);
+    EXPECT_EQ(ports.sourceMax, FULL_PORT_RANGE_MAX);
 }
 
-TEST(MarkMatchTest, DeclaresNoProtocol)
+INSTANTIATE_TEST_SUITE_P(PortMatch, PortMatchTest, ::testing::ValuesIn(PORT_CASES),
+                         caseName<PortCase>);
+
+struct ConntrackStateCase
 {
-    const MarkMatch match(SAMPLE_MARK);
+    ConntrackMatch::State state;
+    uint16_t expectedFlags;
+    uint16_t expectedStateMask;
+    const char* name;
+};
 
-    EXPECT_EQ(match.protocol(), NO_PROTOCOL);
-}
+const std::vector<ConntrackStateCase> CONNTRACK_STATE_CASES{
+    {ConntrackMatch::State::NEW, XT_CONNTRACK_STATE | XT_CONNTRACK_DIRECTION,
+     NF_CT_STATE_BIT(IP_CT_NEW), "NewWithDirectionFlag"},
+    {ConntrackMatch::State::ESTABLISHED_RELATED, XT_CONNTRACK_STATE,
+     NF_CT_STATE_BIT(IP_CT_ESTABLISHED) | NF_CT_STATE_BIT(IP_CT_RELATED), "EstablishedRelated"},
+    {ConntrackMatch::State::INVALID, XT_CONNTRACK_STATE, NF_CT_STATE_INVALID_BIT, "Invalid"},
+};
 
-TEST(TcpMatchTest, SizeCoversMatchHeaderAndPortInfo)
+class ConntrackStateTest : public ::testing::TestWithParam<ConntrackStateCase>
 {
-    const TcpMatch match(SAMPLE_PORT);
+};
 
-    EXPECT_EQ(match.size(), XT_ALIGN(sizeof(xt_entry_match) + sizeof(xt_tcp)));
-}
-
-TEST(TcpMatchTest, WriteFillsHeaderWithTcpNameAndRevisionZero)
+TEST_P(ConntrackStateTest, WritesFlagsAndStateBits)
 {
-    const TcpMatch match(SAMPLE_PORT);
-    const auto buffer = writeToZeroedBuffer(match);
-    const xt_entry_match* header = headerOf(buffer);
-
-    EXPECT_STREQ(header->u.user.name, TCP_NAME);
-    EXPECT_EQ(header->u.user.revision, PORT_MATCH_REVISION);
-    EXPECT_EQ(static_cast<std::size_t>(header->u.user.match_size), match.size());
-}
-
-TEST(TcpMatchTest, SinglePortSetsBothDestinationBoundsToThePort)
-{
-    const TcpMatch match(SAMPLE_PORT);
-    const auto buffer = writeToZeroedBuffer(match);
-    const auto* info = reinterpret_cast<const xt_tcp*>(headerOf(buffer)->data);
-
-    EXPECT_EQ(info->dpts[0], SAMPLE_PORT);
-    EXPECT_EQ(info->dpts[1], SAMPLE_PORT);
-}
-
-TEST(TcpMatchTest, PortRangeSetsDestinationMinAndMax)
-{
-    const TcpMatch match(SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX);
-    const auto buffer = writeToZeroedBuffer(match);
-    const auto* info = reinterpret_cast<const xt_tcp*>(headerOf(buffer)->data);
-
-    EXPECT_EQ(info->dpts[0], SAMPLE_PORT_RANGE_MIN);
-    EXPECT_EQ(info->dpts[1], SAMPLE_PORT_RANGE_MAX);
-}
-
-TEST(TcpMatchTest, SourcePortsSpanFullRange)
-{
-    const TcpMatch match(SAMPLE_PORT);
-    const auto buffer = writeToZeroedBuffer(match);
-    const auto* info = reinterpret_cast<const xt_tcp*>(headerOf(buffer)->data);
-
-    EXPECT_EQ(info->spts[0], FULL_PORT_RANGE_MIN);
-    EXPECT_EQ(info->spts[1], FULL_PORT_RANGE_MAX);
-}
-
-TEST(TcpMatchTest, DeclaresTcpProtocol)
-{
-    const TcpMatch match(SAMPLE_PORT);
-
-    EXPECT_EQ(match.protocol(), IPPROTO_TCP);
-}
-
-TEST(UdpMatchTest, SizeCoversMatchHeaderAndPortInfo)
-{
-    const UdpMatch match(SAMPLE_PORT);
-
-    EXPECT_EQ(match.size(), XT_ALIGN(sizeof(xt_entry_match) + sizeof(xt_udp)));
-}
-
-TEST(UdpMatchTest, WriteFillsHeaderWithUdpNameAndRevisionZero)
-{
-    const UdpMatch match(SAMPLE_PORT);
-    const auto buffer = writeToZeroedBuffer(match);
-    const xt_entry_match* header = headerOf(buffer);
-
-    EXPECT_STREQ(header->u.user.name, UDP_NAME);
-    EXPECT_EQ(header->u.user.revision, PORT_MATCH_REVISION);
-    EXPECT_EQ(static_cast<std::size_t>(header->u.user.match_size), match.size());
-}
-
-TEST(UdpMatchTest, PortRangeSetsDestinationMinAndMax)
-{
-    const UdpMatch match(SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX);
-    const auto buffer = writeToZeroedBuffer(match);
-    const auto* info = reinterpret_cast<const xt_udp*>(headerOf(buffer)->data);
-
-    EXPECT_EQ(info->dpts[0], SAMPLE_PORT_RANGE_MIN);
-    EXPECT_EQ(info->dpts[1], SAMPLE_PORT_RANGE_MAX);
-}
-
-TEST(UdpMatchTest, SourcePortsSpanFullRange)
-{
-    const UdpMatch match(SAMPLE_PORT);
-    const auto buffer = writeToZeroedBuffer(match);
-    const auto* info = reinterpret_cast<const xt_udp*>(headerOf(buffer)->data);
-
-    EXPECT_EQ(info->spts[0], FULL_PORT_RANGE_MIN);
-    EXPECT_EQ(info->spts[1], FULL_PORT_RANGE_MAX);
-}
-
-TEST(UdpMatchTest, DeclaresUdpProtocol)
-{
-    const UdpMatch match(SAMPLE_PORT);
-
-    EXPECT_EQ(match.protocol(), IPPROTO_UDP);
-}
-
-TEST(ConntrackMatchTest, SizeCoversMatchHeaderAndConntrackInfo)
-{
-    const ConntrackMatch match(ConntrackMatch::State::NEW);
-
-    EXPECT_EQ(match.size(), XT_ALIGN(sizeof(xt_entry_match) + sizeof(xt_conntrack_mtinfo3)));
-}
-
-TEST(ConntrackMatchTest, WriteFillsHeaderWithConntrackNameAndRevisionThree)
-{
-    const ConntrackMatch match(ConntrackMatch::State::ESTABLISHED_RELATED);
-    const auto buffer = writeToZeroedBuffer(match);
-    const xt_entry_match* header = headerOf(buffer);
-
-    EXPECT_STREQ(header->u.user.name, CONNTRACK_NAME);
-    EXPECT_EQ(header->u.user.revision, CONNTRACK_REVISION);
-    EXPECT_EQ(static_cast<std::size_t>(header->u.user.match_size), match.size());
-}
-
-TEST(ConntrackMatchTest, NewStateMatchesNewBitWithDirectionFlag)
-{
-    const ConntrackMatch match(ConntrackMatch::State::NEW);
+    const ConntrackMatch match(GetParam().state);
     const auto buffer = writeToZeroedBuffer(match);
     const auto* info = reinterpret_cast<const xt_conntrack_mtinfo3*>(headerOf(buffer)->data);
 
-    EXPECT_EQ(info->match_flags, XT_CONNTRACK_STATE | XT_CONNTRACK_DIRECTION);
-    EXPECT_EQ(info->state_mask, NF_CT_STATE_BIT(IP_CT_NEW));
+    EXPECT_EQ(info->match_flags, GetParam().expectedFlags);
+    EXPECT_EQ(info->state_mask, GetParam().expectedStateMask);
 }
 
-TEST(ConntrackMatchTest, EstablishedRelatedStateMatchesEstablishedAndRelatedBits)
-{
-    const ConntrackMatch match(ConntrackMatch::State::ESTABLISHED_RELATED);
-    const auto buffer = writeToZeroedBuffer(match);
-    const auto* info = reinterpret_cast<const xt_conntrack_mtinfo3*>(headerOf(buffer)->data);
-
-    EXPECT_EQ(info->match_flags, XT_CONNTRACK_STATE);
-    EXPECT_EQ(info->state_mask,
-              NF_CT_STATE_BIT(IP_CT_ESTABLISHED) | NF_CT_STATE_BIT(IP_CT_RELATED));
-}
-
-TEST(ConntrackMatchTest, InvalidStateMatchesInvalidBit)
-{
-    const ConntrackMatch match(ConntrackMatch::State::INVALID);
-    const auto buffer = writeToZeroedBuffer(match);
-    const auto* info = reinterpret_cast<const xt_conntrack_mtinfo3*>(headerOf(buffer)->data);
-
-    EXPECT_EQ(info->match_flags, XT_CONNTRACK_STATE);
-    EXPECT_EQ(info->state_mask, NF_CT_STATE_INVALID_BIT);
-}
-
-TEST(HashlimitMatchTest, SizeCoversMatchHeaderAndHashlimitInfo)
-{
-    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE,
-                               SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
-
-    EXPECT_EQ(match.size(), XT_ALIGN(sizeof(xt_entry_match) + sizeof(xt_hashlimit_mtinfo1)));
-}
-
-TEST(HashlimitMatchTest, WriteFillsHeaderWithHashlimitNameAndRevisionOne)
-{
-    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE,
-                               SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
-    const auto buffer = writeToZeroedBuffer(match);
-    const xt_entry_match* header = headerOf(buffer);
-
-    EXPECT_STREQ(header->u.user.name, HASHLIMIT_NAME);
-    EXPECT_EQ(header->u.user.revision, HASHLIMIT_REVISION);
-    EXPECT_EQ(static_cast<std::size_t>(header->u.user.match_size), match.size());
-}
+INSTANTIATE_TEST_SUITE_P(ConntrackMatch, ConntrackStateTest,
+                         ::testing::ValuesIn(CONNTRACK_STATE_CASES), caseName<ConntrackStateCase>);
 
 TEST(HashlimitMatchTest, WriteFillsNamedRateConfigWithDefaults)
 {
-    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE,
-                               SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
-    const auto buffer = writeToZeroedBuffer(match);
+    const auto buffer = writeToZeroedBuffer(*sampleHashlimit());
     const auto* info = reinterpret_cast<const xt_hashlimit_mtinfo1*>(headerOf(buffer)->data);
 
     EXPECT_STREQ(info->name, SAMPLE_HASHLIMIT_NAME);
@@ -306,3 +326,99 @@ TEST(HashlimitMatchTest, ExplicitModeIsWrittenVerbatim)
 
     EXPECT_EQ(info->cfg.mode, EXPLICIT_HASHLIMIT_MODE);
 }
+
+/* LEARN: one rule buffer and what MarkMatch::read() must make of it. makeEntry builds the rule,
+   and may then edit its bytes to play a kernel value RuleBuilder never writes. expected is
+   nullopt when the rule has no plain mark match, or its match headers cannot be trusted.
+*/
+struct MarkReadCase
+{
+    IptEntryPtr (*makeEntry)();
+    std::optional<MarkParam> expected;
+    const char* name;
+};
+
+const std::vector<MarkReadCase> MARK_DECODED_CASES{
+    {markEntry, MarkParam{SAMPLE_MARK}, "MarkWrittenByMarkMatchRoundTrips"},
+    {[]() {
+         return acceptEntryWith({std::make_shared<ConntrackMatch>(ConntrackMatch::State::NEW),
+                                 std::make_shared<MarkMatch>(SAMPLE_MARK)});
+     },
+     MarkParam{SAMPLE_MARK}, "MarkAfterAnotherMatchIsFound"},
+    {[]() {
+         return acceptEntryWith(
+             {std::make_shared<MarkMatch>(SAMPLE_MARK), std::make_shared<MarkMatch>(OTHER_MARK)});
+     },
+     MarkParam{SAMPLE_MARK}, "FirstOfTwoMarkMatchesIsRead"},
+};
+
+const std::vector<MarkReadCase> MARK_REJECTED_CASES{
+    {[]() {
+         return acceptEntryWith({std::make_shared<ConntrackMatch>(ConntrackMatch::State::NEW)});
+     },
+     std::nullopt, "EntryWithoutMarkMatchHasNoMark"},
+    {[]() { return acceptEntryWith({}); }, std::nullopt, "EntryWithoutMatchesHasNoMark"},
+    {[]() { return acceptEntryWith({std::make_shared<MarkMatch>(SAMPLE_MARK, SAMPLE_MARK_MASK)}); },
+     std::nullopt, "PartialMaskIsNotAPlainMark"},
+    {[]() {
+         IptEntryPtr entry = markEntry();
+         markInfoOf(*entry)->invert = 1;
+         return entry;
+     },
+     std::nullopt, "InvertedMarkIsNotAPlainMark"},
+    {[]() {
+         IptEntryPtr entry = markEntry();
+         firstMatchOf(*entry)->u.user.revision = 0;
+         return entry;
+     },
+     std::nullopt, "OtherRevisionHasAnotherLayoutAndIsNotRead"},
+    {[]() {
+         IptEntryPtr entry = markEntry();
+         firstMatchOf(*entry)->u.user.match_size = sizeof(xt_entry_match);
+         return entry;
+     },
+     std::nullopt, "MatchSmallerThanMarkInfoIsRejected"},
+    {[]() {
+         IptEntryPtr entry = markEntry();
+         firstMatchOf(*entry)->u.user.match_size = 0;
+         return entry;
+     },
+     std::nullopt, "ZeroMatchSizeStopsTheWalk"},
+    {[]() {
+         IptEntryPtr entry = markEntry();
+         firstMatchOf(*entry)->u.user.match_size = entry->target_offset;
+         return entry;
+     },
+     std::nullopt, "MatchRunningIntoTheTargetIsRejected"},
+    {[]() {
+         IptEntryPtr entry = markEntry();
+         const std::size_t pastTheEntry = entry->next_offset + 1;
+         entry->target_offset = pastTheEntry;
+         return entry;
+     },
+     std::nullopt, "TargetOffsetPastTheEntryIsRejected"},
+    {[]() {
+         IptEntryPtr entry = markEntry();
+         std::memset(firstMatchOf(*entry)->u.user.name, 'm',
+                     sizeof(firstMatchOf(*entry)->u.user.name));
+         return entry;
+     },
+     std::nullopt, "MatchNameWithoutTerminatorIsRejected"},
+};
+
+class MarkReadTest : public ::testing::TestWithParam<MarkReadCase>
+{
+};
+
+TEST_P(MarkReadTest, DecodesWhatTheRuleHolds)
+{
+    const IptEntryPtr entry = GetParam().makeEntry();
+
+    EXPECT_EQ(MarkMatch::read(*entry), GetParam().expected);
+}
+
+INSTANTIATE_TEST_SUITE_P(Decoded, MarkReadTest, ::testing::ValuesIn(MARK_DECODED_CASES),
+                         caseName<MarkReadCase>);
+
+INSTANTIATE_TEST_SUITE_P(Rejected, MarkReadTest, ::testing::ValuesIn(MARK_REJECTED_CASES),
+                         caseName<MarkReadCase>);
