@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 class MangleAdapter final : public IMangleAdapter
 {
@@ -18,6 +19,7 @@ public:
     void addConntrackRule(MarkParam mark, ConntrackParam conntrack) override;
     void addNflogRule(MarkParam mark, NflogParam nflog) override;
     void commit() override;
+    std::vector<NflogRuleParam> readNflogRules() override;
 
     void setHelper(std::shared_ptr<IIptcHelper> helper);
 

@@ -4,6 +4,7 @@
 #include "adapter_iptc/i_mangle_adapter.h"
 
 #include <gmock/gmock.h>
+#include <vector>
 
 class MockMangleAdapter : public IMangleAdapter
 {
@@ -13,6 +14,7 @@ public:
     MOCK_METHOD2(addConntrackRule, void(MarkParam mark, ConntrackParam conntrack));
     MOCK_METHOD2(addNflogRule, void(MarkParam mark, NflogParam nflog));
     MOCK_METHOD0(commit, void());
+    MOCK_METHOD0(readNflogRules, std::vector<NflogRuleParam>());
 };
 
 #endif
