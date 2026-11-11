@@ -12,14 +12,14 @@
 class RuleBuilder final : public IBuilder
 {
 public:
-    RuleBuilder& setMatch(const std::shared_ptr<TemplateMatch>& m);
-    RuleBuilder& setTarget(const std::shared_ptr<ITargetStrategy>& t);
-    IptEntryPtr build() const override;
+    RuleBuilder& setMatch(const std::shared_ptr<TemplateMatch>& match);
+    RuleBuilder& setTarget(const std::shared_ptr<ITargetStrategy>& target);
+    [[nodiscard]] IptEntryPtr build() const override;
 
 private:
     std::vector<std::shared_ptr<TemplateMatch>> matches_;
     std::shared_ptr<ITargetStrategy> target_;
-    uint8_t resolveProtocol() const;
+    [[nodiscard]] uint8_t resolveProtocol() const;
 };
 
 #endif

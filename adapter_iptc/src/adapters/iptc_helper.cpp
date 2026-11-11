@@ -9,6 +9,7 @@
 #include <libiptc/libiptc.h>
 #include <new>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -37,9 +38,9 @@ IptEntryPtr copyOf(const ipt_entry& entry)
 
 } // namespace
 
-IptcHelper::IptcHelper(const std::string& table, const std::string& chain)
-    : m_table(table)
-    , m_chain(chain)
+IptcHelper::IptcHelper(std::string table, std::string chain)
+    : m_table(std::move(table))
+    , m_chain(std::move(chain))
 {
 }
 

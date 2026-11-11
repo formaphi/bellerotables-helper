@@ -3,25 +3,27 @@
 
 #include "adapter_iptc/i_target_strategy.h"
 
+#include <cstdint>
+
 class StandardTarget : public ITargetStrategy
 {
 public:
-    enum class Verdict
+    enum class Verdict : uint8_t
     {
         ACCEPT,
         DROP,
         RETURN
     };
 
-    explicit StandardTarget(Verdict v);
+    explicit StandardTarget(Verdict verdict);
 
-    std::size_t size() const override;
+    [[nodiscard]] std::size_t size() const override;
     void write(unsigned char* ptr) const override;
 
 private:
     int verdict_;
 
-    static int toKernel(Verdict v);
+    static int toKernel(Verdict verdict);
 };
 
 #endif

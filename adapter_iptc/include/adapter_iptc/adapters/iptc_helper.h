@@ -16,7 +16,7 @@ struct xtc_handle;
 class IptcHelper final : public IIptcHelper
 {
 public:
-    IptcHelper(const std::string& table, const std::string& chain);
+    IptcHelper(std::string table, std::string chain);
     ~IptcHelper() override;
 
     IptcHelper(const IptcHelper&) = delete;

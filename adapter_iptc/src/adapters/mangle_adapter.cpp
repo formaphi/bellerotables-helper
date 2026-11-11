@@ -56,7 +56,7 @@ void MangleAdapter::addNflogRule(MarkParam mark, NflogParam nflog)
 
 void MangleAdapter::setHelper(std::shared_ptr<IIptcHelper> helper)
 {
-    m_helper = helper;
+    m_helper = std::move(helper);
 }
 
 void MangleAdapter::commit()

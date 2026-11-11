@@ -4,8 +4,8 @@
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter_ipv4/ip_tables.h>
 
-StandardTarget::StandardTarget(Verdict v)
-    : verdict_(toKernel(v))
+StandardTarget::StandardTarget(Verdict verdict)
+    : verdict_(toKernel(verdict))
 {
 }
 
@@ -16,14 +16,14 @@ std::size_t StandardTarget::size() const
 
 void StandardTarget::write(unsigned char* ptr) const
 {
-    auto* st = reinterpret_cast<xt_standard_target*>(ptr);
-    st->target.u.user.target_size = size();
-    st->verdict = verdict_;
+    auto* standardTarget = reinterpret_cast<xt_standard_target*>(ptr);
+    standardTarget->target.u.user.target_size = size();
+    standardTarget->verdict = verdict_;
 }
 
-int StandardTarget::toKernel(Verdict v)
+int StandardTarget::toKernel(Verdict verdict)
 {
-    switch (v)
+    switch (verdict)
     {
         case Verdict::ACCEPT:
             return -NF_ACCEPT - 1;

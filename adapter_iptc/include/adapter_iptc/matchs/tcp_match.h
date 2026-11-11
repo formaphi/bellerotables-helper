@@ -11,12 +11,12 @@ public:
     explicit TcpMatch(uint16_t destinationPort);
     TcpMatch(uint16_t destinationPortMin, uint16_t destinationPortMax);
 
-    uint8_t protocol() const override;
+    [[nodiscard]] uint8_t protocol() const override;
 
 protected:
-    const char* name() const override;
-    uint8_t revision() const override;
-    std::size_t dataSize() const override;
+    [[nodiscard]] const char* name() const override;
+    [[nodiscard]] uint8_t revision() const override;
+    [[nodiscard]] std::size_t dataSize() const override;
     void fillData(unsigned char* data) const override;
 
 private:

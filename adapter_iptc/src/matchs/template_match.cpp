@@ -10,11 +10,11 @@ std::size_t TemplateMatch::size() const
 
 void TemplateMatch::write(unsigned char* ptr) const
 {
-    auto* m = reinterpret_cast<xt_entry_match*>(ptr);
-    m->u.user.match_size = size();
-    std::strncpy(m->u.user.name, name(), sizeof(m->u.user.name) - 1);
-    m->u.user.revision = revision();
-    fillData(m->data);
+    auto* match = reinterpret_cast<xt_entry_match*>(ptr);
+    match->u.user.match_size = size();
+    std::strncpy(match->u.user.name, name(), sizeof(match->u.user.name) - 1);
+    match->u.user.revision = revision();
+    fillData(match->data);
 }
 
 uint8_t TemplateMatch::protocol() const

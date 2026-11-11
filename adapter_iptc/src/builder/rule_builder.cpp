@@ -6,23 +6,23 @@
 #include <linux/netfilter_ipv4/ip_tables.h>
 #include <new>
 
-RuleBuilder& RuleBuilder::setMatch(const std::shared_ptr<TemplateMatch>& m)
+RuleBuilder& RuleBuilder::setMatch(const std::shared_ptr<TemplateMatch>& match)
 {
-    matches_.push_back(m);
+    matches_.push_back(match);
     return *this;
 }
 
-RuleBuilder& RuleBuilder::setTarget(const std::shared_ptr<ITargetStrategy>& t)
+RuleBuilder& RuleBuilder::setTarget(const std::shared_ptr<ITargetStrategy>& target)
 {
-    target_ = t;
+    target_ = target;
     return *this;
 }
 
 IptEntryPtr RuleBuilder::build() const
 {
     std::size_t matchesSize = 0;
-    for (const auto& m : matches_)
-        matchesSize += m->size();
+    for (const auto& match : matches_)
+        matchesSize += match->size();
 
     auto targetOffset = sizeof(ipt_entry) + matchesSize;
     auto total = targetOffset + target_->size();
@@ -39,10 +39,10 @@ IptEntryPtr RuleBuilder::build() const
     entry->ip.proto = resolveProtocol();
 
     auto* ptr = entry->elems;
-    for (const auto& m : matches_)
+    for (const auto& match : matches_)
     {
-        m->write(ptr);
-        ptr += m->size();
+        match->write(ptr);
+        ptr += match->size();
     }
 
     target_->write(ptr);
@@ -51,9 +51,9 @@ IptEntryPtr RuleBuilder::build() const
 
 uint8_t RuleBuilder::resolveProtocol() const
 {
-    for (const auto& m : matches_)
+    for (const auto& match : matches_)
     {
-        auto proto = m->protocol();
+        auto proto = match->protocol();
         if (proto != 0)
             return proto;
     }

@@ -9,7 +9,7 @@ class IBuilder
 {
 public:
     virtual ~IBuilder() = default;
-    virtual IptEntryPtr build() const = 0;
+    [[nodiscard]] virtual IptEntryPtr build() const = 0;
 };
 
 #endif

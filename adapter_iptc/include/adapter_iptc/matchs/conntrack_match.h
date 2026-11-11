@@ -8,7 +8,7 @@
 class ConntrackMatch : public TemplateMatch
 {
 public:
-    enum class State
+    enum class State : uint8_t
     {
         NEW,
         ESTABLISHED_RELATED,
@@ -18,14 +18,14 @@ public:
     explicit ConntrackMatch(State state);
 
 protected:
-    const char* name() const override;
-    uint8_t revision() const override;
-    std::size_t dataSize() const override;
+    [[nodiscard]] const char* name() const override;
+    [[nodiscard]] uint8_t revision() const override;
+    [[nodiscard]] std::size_t dataSize() const override;
     void fillData(unsigned char* data) const override;
 
 private:
-    uint16_t m_matchFlags;
-    uint16_t m_stateMask;
+    uint16_t m_matchFlags{};
+    uint16_t m_stateMask{};
 
     static void resolve(State state, uint16_t& matchFlags, uint16_t& stateMask);
 };

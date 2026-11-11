@@ -7,7 +7,7 @@ class ITargetStrategy
 {
 public:
     virtual ~ITargetStrategy() = default;
-    virtual std::size_t size() const = 0;
+    [[nodiscard]] virtual std::size_t size() const = 0;
     virtual void write(unsigned char* ptr) const = 0;
 };
 

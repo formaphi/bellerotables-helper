@@ -2,18 +2,20 @@
 
 #include <cstring>
 #include <linux/netfilter/xt_hashlimit.h>
+#include <utility>
 
-HashlimitMatch::HashlimitMatch(const std::string& hashlimitName, uint32_t average, uint32_t burst,
+HashlimitMatch::HashlimitMatch(std::string hashlimitName, uint32_t average, uint32_t burst,
                                uint32_t expire, uint32_t garbageCollectionInterval,
                                uint8_t sourceMask, uint8_t destinationMask, uint32_t mode)
-    : m_hashlimitName(hashlimitName)
+    : m_hashlimitName(std::move(hashlimitName))
     , m_average(average)
     , m_burst(burst)
     , m_expire(expire)
     , m_garbageCollectionInterval(garbageCollectionInterval)
     , m_sourceMask(sourceMask)
     , m_destinationMask(destinationMask)
-    , m_mode(mode ? mode : XT_HASHLIMIT_HASH_SIP | XT_HASHLIMIT_HASH_DIP | XT_HASHLIMIT_HASH_DPT)
+    , m_mode((mode != 0U) ? mode
+                          : XT_HASHLIMIT_HASH_SIP | XT_HASHLIMIT_HASH_DIP | XT_HASHLIMIT_HASH_DPT)
 {
 }
 
