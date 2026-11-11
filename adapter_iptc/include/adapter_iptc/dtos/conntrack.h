@@ -3,8 +3,9 @@
 
 #include "adapter_iptc/matchs/conntrack_match.h"
 
-struct ConntrackParam {
-  ConntrackMatch::State state;
+struct ConntrackParam
+{
+    ConntrackMatch::State state;
 };
 
 #endif

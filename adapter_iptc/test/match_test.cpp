@@ -3,19 +3,16 @@
 #include <adapter_iptc/matchs/mark_match.h>
 #include <adapter_iptc/matchs/tcp_match.h>
 #include <adapter_iptc/matchs/udp_match.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <gtest/gtest.h>
-
+#include <linux/in.h>
 #include <linux/netfilter/nf_conntrack_common.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter/xt_conntrack.h>
 #include <linux/netfilter/xt_hashlimit.h>
 #include <linux/netfilter/xt_mark.h>
 #include <linux/netfilter/xt_tcpudp.h>
-#include <linux/in.h>
-
-#include <cstddef>
-#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -50,7 +47,8 @@ constexpr uint32_t SAMPLE_HASHLIMIT_BURST = 5;
 constexpr uint32_t SAMPLE_HASHLIMIT_EXPIRE = 60000;
 constexpr uint32_t DEFAULT_GARBAGE_COLLECTION_INTERVAL = 1000;
 constexpr uint8_t DEFAULT_HOST_MASK = 32;
-constexpr uint32_t DEFAULT_HASHLIMIT_MODE = XT_HASHLIMIT_HASH_SIP | XT_HASHLIMIT_HASH_DIP | XT_HASHLIMIT_HASH_DPT;
+constexpr uint32_t DEFAULT_HASHLIMIT_MODE =
+    XT_HASHLIMIT_HASH_SIP | XT_HASHLIMIT_HASH_DIP | XT_HASHLIMIT_HASH_DPT;
 constexpr uint32_t EXPLICIT_HASHLIMIT_MODE = XT_HASHLIMIT_HASH_DIP;
 
 const xt_entry_match* headerOf(const std::vector<unsigned char>& buffer)
@@ -246,7 +244,8 @@ TEST(ConntrackMatchTest, EstablishedRelatedStateMatchesEstablishedAndRelatedBits
     const auto* info = reinterpret_cast<const xt_conntrack_mtinfo3*>(headerOf(buffer)->data);
 
     EXPECT_EQ(info->match_flags, XT_CONNTRACK_STATE);
-    EXPECT_EQ(info->state_mask, NF_CT_STATE_BIT(IP_CT_ESTABLISHED) | NF_CT_STATE_BIT(IP_CT_RELATED));
+    EXPECT_EQ(info->state_mask,
+              NF_CT_STATE_BIT(IP_CT_ESTABLISHED) | NF_CT_STATE_BIT(IP_CT_RELATED));
 }
 
 TEST(ConntrackMatchTest, InvalidStateMatchesInvalidBit)
@@ -261,14 +260,16 @@ TEST(ConntrackMatchTest, InvalidStateMatchesInvalidBit)
 
 TEST(HashlimitMatchTest, SizeCoversMatchHeaderAndHashlimitInfo)
 {
-    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE, SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
+    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE,
+                               SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
 
     EXPECT_EQ(match.size(), XT_ALIGN(sizeof(xt_entry_match) + sizeof(xt_hashlimit_mtinfo1)));
 }
 
 TEST(HashlimitMatchTest, WriteFillsHeaderWithHashlimitNameAndRevisionOne)
 {
-    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE, SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
+    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE,
+                               SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
     const auto buffer = writeToZeroedBuffer(match);
     const xt_entry_match* header = headerOf(buffer);
 
@@ -279,7 +280,8 @@ TEST(HashlimitMatchTest, WriteFillsHeaderWithHashlimitNameAndRevisionOne)
 
 TEST(HashlimitMatchTest, WriteFillsNamedRateConfigWithDefaults)
 {
-    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE, SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
+    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE,
+                               SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
     const auto buffer = writeToZeroedBuffer(match);
     const auto* info = reinterpret_cast<const xt_hashlimit_mtinfo1*>(headerOf(buffer)->data);
 
@@ -295,9 +297,10 @@ TEST(HashlimitMatchTest, WriteFillsNamedRateConfigWithDefaults)
 
 TEST(HashlimitMatchTest, ExplicitModeIsWrittenVerbatim)
 {
-    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE, SAMPLE_HASHLIMIT_BURST,
-        SAMPLE_HASHLIMIT_EXPIRE, DEFAULT_GARBAGE_COLLECTION_INTERVAL, DEFAULT_HOST_MASK, DEFAULT_HOST_MASK,
-        EXPLICIT_HASHLIMIT_MODE);
+    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE,
+                               SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE,
+                               DEFAULT_GARBAGE_COLLECTION_INTERVAL, DEFAULT_HOST_MASK,
+                               DEFAULT_HOST_MASK, EXPLICIT_HASHLIMIT_MODE);
     const auto buffer = writeToZeroedBuffer(match);
     const auto* info = reinterpret_cast<const xt_hashlimit_mtinfo1*>(headerOf(buffer)->data);
 

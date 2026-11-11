@@ -1,15 +1,12 @@
 #include <adapter_iptc/targets/nflog_target.h>
 #include <adapter_iptc/targets/standard_target.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <gtest/gtest.h>
-
 #include <linux/netfilter.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter/xt_NFLOG.h>
 #include <linux/netfilter_ipv4/ip_tables.h>
-
-#include <cstddef>
-#include <cstdint>
 #include <vector>
 
 namespace {
@@ -107,7 +104,8 @@ TEST(NflogTargetTest, WriteFillsGroupAndPrefix)
 {
     const NflogTarget target(SAMPLE_NFLOG_GROUP, SAMPLE_NFLOG_PREFIX);
     const auto buffer = writeToZeroedBuffer(target);
-    const auto* info = reinterpret_cast<const xt_nflog_info*>(reinterpret_cast<const xt_entry_target*>(buffer.data())->data);
+    const auto* info = reinterpret_cast<const xt_nflog_info*>(
+        reinterpret_cast<const xt_entry_target*>(buffer.data())->data);
 
     EXPECT_EQ(info->group, SAMPLE_NFLOG_GROUP);
     EXPECT_STREQ(info->prefix, SAMPLE_NFLOG_PREFIX);

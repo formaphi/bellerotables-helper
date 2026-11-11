@@ -5,10 +5,11 @@
 
 struct ipt_entry;
 
-class IBuilder {
+class IBuilder
+{
 public:
-  virtual ~IBuilder() = default;
-  virtual std::shared_ptr<ipt_entry> build() const = 0;
+    virtual ~IBuilder() = default;
+    virtual std::shared_ptr<ipt_entry> build() const = 0;
 };
 
 #endif

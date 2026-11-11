@@ -1,18 +1,14 @@
 #include <adapter_iptc/adapters/mangle_adapter.h>
-
 #include <adapter_iptc/mocks/mock_iptc_helper.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-
 #include <linux/netfilter.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter/xt_NFLOG.h>
 #include <linux/netfilter/xt_mark.h>
 #include <linux/netfilter_ipv4/ip_tables.h>
-
-#include <cstddef>
-#include <cstdint>
 #include <memory>
 
 namespace {
@@ -35,12 +31,14 @@ const xt_entry_match* firstMatch(const ipt_entry& entry)
 
 const xt_entry_match* nextMatch(const xt_entry_match* match)
 {
-    return reinterpret_cast<const xt_entry_match*>(reinterpret_cast<const unsigned char*>(match) + match->u.user.match_size);
+    return reinterpret_cast<const xt_entry_match*>(reinterpret_cast<const unsigned char*>(match) +
+                                                   match->u.user.match_size);
 }
 
 const xt_entry_target* targetOf(const ipt_entry& entry)
 {
-    return reinterpret_cast<const xt_entry_target*>(reinterpret_cast<const unsigned char*>(&entry) + entry.target_offset);
+    return reinterpret_cast<const xt_entry_target*>(reinterpret_cast<const unsigned char*>(&entry) +
+                                                    entry.target_offset);
 }
 
 const xt_mark_mtinfo1* markPayload(const xt_entry_match* match)
@@ -125,5 +123,6 @@ TEST(MangleAdapterTest, AddNflogRuleAppendsMarkThenNflogTargetWithGroupAndPrefix
             EXPECT_STREQ(info->prefix, SAMPLE_NFLOG_PREFIX);
         }));
 
-    adapter.addNflogRule(MarkParam{SAMPLE_MARK}, NflogParam{SAMPLE_NFLOG_PREFIX, SAMPLE_NFLOG_GROUP});
+    adapter.addNflogRule(MarkParam{SAMPLE_MARK},
+                         NflogParam{SAMPLE_NFLOG_PREFIX, SAMPLE_NFLOG_GROUP});
 }

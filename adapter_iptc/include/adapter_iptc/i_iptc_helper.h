@@ -3,13 +3,14 @@
 
 struct ipt_entry;
 
-class IIptcHelper {
+class IIptcHelper
+{
 public:
-  virtual ~IIptcHelper() = default;
-  virtual void createChain() = 0;
-  virtual void flushEntries() = 0;
-  virtual void appendEntry(const ipt_entry *entry) = 0;
-  virtual void commit() = 0;
+    virtual ~IIptcHelper() = default;
+    virtual void createChain() = 0;
+    virtual void flushEntries() = 0;
+    virtual void appendEntry(const ipt_entry* entry) = 0;
+    virtual void commit() = 0;
 };
 
 #endif
