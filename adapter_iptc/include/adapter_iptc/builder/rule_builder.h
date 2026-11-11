@@ -3,6 +3,7 @@
 
 #include "adapter_iptc/i_iptc_builder.h"
 #include "adapter_iptc/i_target_strategy.h"
+#include "adapter_iptc/ipt_entry_ptr.h"
 #include "adapter_iptc/template_match.h"
 
 #include <memory>
@@ -13,7 +14,7 @@ class RuleBuilder final : public IBuilder
 public:
     RuleBuilder& setMatch(const std::shared_ptr<TemplateMatch>& m);
     RuleBuilder& setTarget(const std::shared_ptr<ITargetStrategy>& t);
-    std::shared_ptr<ipt_entry> build() const override;
+    IptEntryPtr build() const override;
 
 private:
     std::vector<std::shared_ptr<TemplateMatch>> matches_;

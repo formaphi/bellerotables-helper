@@ -1,7 +1,10 @@
 #include "adapter_iptc/builder/rule_builder.h"
 
+#include "adapter_iptc/ipt_entry_ptr.h"
+
 #include <cstdlib>
 #include <linux/netfilter_ipv4/ip_tables.h>
+#include <new>
 
 RuleBuilder& RuleBuilder::setMatch(const std::shared_ptr<TemplateMatch>& m)
 {
@@ -15,7 +18,7 @@ RuleBuilder& RuleBuilder::setTarget(const std::shared_ptr<ITargetStrategy>& t)
     return *this;
 }
 
-std::shared_ptr<ipt_entry> RuleBuilder::build() const
+IptEntryPtr RuleBuilder::build() const
 {
     std::size_t matchesSize = 0;
     for (const auto& m : matches_)
@@ -24,7 +27,13 @@ std::shared_ptr<ipt_entry> RuleBuilder::build() const
     auto targetOffset = sizeof(ipt_entry) + matchesSize;
     auto total = targetOffset + target_->size();
 
-    std::shared_ptr<ipt_entry> entry(static_cast<ipt_entry*>(std::calloc(1, total)), std::free);
+    void* buffer = std::calloc(1, total);
+    if (buffer == nullptr)
+    {
+        throw std::bad_alloc();
+    }
+    auto* rule = static_cast<ipt_entry*>(buffer);
+    IptEntryPtr entry(rule, &std::free);
     entry->target_offset = targetOffset;
     entry->next_offset = total;
     entry->ip.proto = resolveProtocol();
