@@ -1,5 +1,7 @@
 #include "adapter_iptc/matchs/conntrack_match.h"
 
+#include "adapter_iptc/rule_layout.h"
+
 #include <linux/netfilter/nf_conntrack_common.h>
 #include <linux/netfilter/xt_conntrack.h>
 
@@ -44,7 +46,8 @@ std::size_t ConntrackMatch::dataSize() const
 
 void ConntrackMatch::fillData(unsigned char* data) const
 {
-    auto* info = reinterpret_cast<xt_conntrack_mtinfo3*>(data);
-    info->match_flags = m_matchFlags;
-    info->state_mask = m_stateMask;
+    xt_conntrack_mtinfo3 info{};
+    info.match_flags = m_matchFlags;
+    info.state_mask = m_stateMask;
+    RuleLayout::store(data, info);
 }

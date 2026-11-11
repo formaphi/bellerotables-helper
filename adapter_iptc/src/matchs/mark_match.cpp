@@ -1,6 +1,7 @@
 #include "adapter_iptc/matchs/mark_match.h"
 
 #include "adapter_iptc/dtos/mark.h"
+#include "adapter_iptc/rule_layout.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -41,9 +42,10 @@ std::size_t MarkMatch::dataSize() const
 
 void MarkMatch::fillData(unsigned char* data) const
 {
-    auto* info = reinterpret_cast<xt_mark_mtinfo1*>(data);
-    info->mark = m_mark;
-    info->mask = m_mask;
+    xt_mark_mtinfo1 info{};
+    info.mark = m_mark;
+    info.mask = m_mask;
+    RuleLayout::store(data, info);
 }
 
 std::optional<MarkParam> MarkMatch::read(const ipt_entry& entry)
@@ -54,12 +56,12 @@ std::optional<MarkParam> MarkMatch::read(const ipt_entry& entry)
         return std::nullopt;
     }
 
-    const auto* info = reinterpret_cast<const xt_mark_mtinfo1*>(data);
-    if (info->mask != EVERY_MARK_BIT || info->invert != 0)
+    const auto info = RuleLayout::load<xt_mark_mtinfo1>(data);
+    if (info.mask != EVERY_MARK_BIT || info.invert != 0)
     {
         return std::nullopt;
     }
-    return MarkParam{.mark = info->mark};
+    return MarkParam{.mark = info.mark};
 }
 
 /* LEARN: the matches of a rule sit one after another between the rule header and the target:
@@ -85,8 +87,7 @@ const unsigned char* MarkMatch::dataOf(const ipt_entry& entry)
         return nullptr;
     }
 
-    const auto* entryStart = reinterpret_cast<const unsigned char*>(&entry);
-    const std::size_t nameFieldBytes = sizeof(xt_entry_match::u.user.name);
+    const unsigned char* entryStart = RuleLayout::bytesOf(entry);
     const std::size_t markMatchBytes = sizeof(xt_entry_match) + sizeof(xt_mark_mtinfo1);
 
     std::size_t matchOffset = matchesStart;
@@ -102,10 +103,10 @@ const unsigned char* MarkMatch::dataOf(const ipt_entry& entry)
         }
 
         const unsigned char* matchStart = entryStart + matchOffset;
-        const auto* match = reinterpret_cast<const xt_entry_match*>(matchStart);
+        const ExtensionHeader match = RuleLayout::readMatchHeader(matchStart);
 
         // LEARN: match_size counts the match header plus its payload (and padding).
-        const std::size_t matchBytes = match->u.user.match_size;
+        const std::size_t matchBytes = match.size;
         const std::size_t matchEnd = matchOffset + matchBytes;
         if (matchBytes < sizeof(xt_entry_match) || matchEnd > matchesEnd)
         {
@@ -116,12 +117,12 @@ const unsigned char* MarkMatch::dataOf(const ipt_entry& entry)
            it. Another revision of "mark" has another payload layout, so it is not decoded as
            xt_mark_mtinfo1, and a match too small for that payload is skipped as well.
         */
-        const bool isMark = std::strncmp(match->u.user.name, MARK_MATCH_NAME, nameFieldBytes) == 0;
-        const bool isWrittenRevision = match->u.user.revision == MARK_MATCH_REVISION;
+        const bool isMark = match.hasName(MARK_MATCH_NAME);
+        const bool isWrittenRevision = match.revision == MARK_MATCH_REVISION;
         const bool holdsMarkInfo = matchBytes >= markMatchBytes;
         if (isMark && isWrittenRevision && holdsMarkInfo)
         {
-            return match->data;
+            return RuleLayout::matchPayload(matchStart);
         }
 
         matchOffset = matchEnd;

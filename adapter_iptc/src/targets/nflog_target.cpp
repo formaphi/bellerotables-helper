@@ -1,6 +1,7 @@
 #include "adapter_iptc/targets/nflog_target.h"
 
 #include "adapter_iptc/dtos/nflog.h"
+#include "adapter_iptc/rule_layout.h"
 
 #include <cstddef>
 #include <cstring>
@@ -64,24 +65,24 @@ std::size_t NflogTarget::dataSize() const
 
 void NflogTarget::fillData(unsigned char* data) const
 {
-    auto* info = reinterpret_cast<xt_nflog_info*>(data);
-    info->group = m_nflog.group;
+    xt_nflog_info info{};
+    info.group = m_nflog.group;
 
     // LEARN: one byte of the field is kept for the terminator.
-    const std::size_t prefixCapacity = sizeof(info->prefix) - 1;
+    const std::size_t prefixCapacity = sizeof(info.prefix) - 1;
     const std::size_t prefixBytes = prefixBytesThatFit(m_nflog.prefix, prefixCapacity);
-    std::memset(info->prefix, 0, sizeof(info->prefix));
-    std::memcpy(info->prefix, m_nflog.prefix.data(), prefixBytes);
+    std::memcpy(info.prefix, m_nflog.prefix.data(), prefixBytes);
 
     if (m_nflog.range.has_value())
     {
-        info->len = *m_nflog.range;
-        info->flags |= XT_NFLOG_F_COPY_LEN;
+        info.len = *m_nflog.range;
+        info.flags |= XT_NFLOG_F_COPY_LEN;
     }
     if (m_nflog.threshold.has_value())
     {
-        info->threshold = *m_nflog.threshold;
+        info.threshold = *m_nflog.threshold;
     }
+    RuleLayout::store(data, info);
 }
 
 std::optional<NflogParam> NflogTarget::read(const ipt_entry& entry)
@@ -92,17 +93,17 @@ std::optional<NflogParam> NflogTarget::read(const ipt_entry& entry)
         return std::nullopt;
     }
 
-    const auto* info = reinterpret_cast<const xt_nflog_info*>(data);
+    const auto info = RuleLayout::load<xt_nflog_info>(data);
     // LEARN: bounded by the field: a prefix filling all 64 bytes has no terminator.
-    const std::size_t prefixBytes = strnlen(info->prefix, sizeof(info->prefix));
-    NflogParam nflog{.prefix = std::string(info->prefix, prefixBytes), .group = info->group};
-    if ((info->flags & XT_NFLOG_F_COPY_LEN) != 0)
+    const std::size_t prefixBytes = strnlen(info.prefix, sizeof(info.prefix));
+    NflogParam nflog{.prefix = std::string(info.prefix, prefixBytes), .group = info.group};
+    if ((info.flags & XT_NFLOG_F_COPY_LEN) != 0)
     {
-        nflog.range = info->len;
+        nflog.range = info.len;
     }
-    if (info->threshold != XT_NFLOG_DEFAULT_THRESHOLD)
+    if (info.threshold != XT_NFLOG_DEFAULT_THRESHOLD)
     {
-        nflog.threshold = info->threshold;
+        nflog.threshold = info.threshold;
     }
     return nflog;
 }
@@ -130,14 +131,14 @@ const unsigned char* NflogTarget::dataOf(const ipt_entry& entry)
         return nullptr;
     }
 
-    const auto* entryStart = reinterpret_cast<const unsigned char*>(&entry);
+    const unsigned char* entryStart = RuleLayout::bytesOf(entry);
     const unsigned char* targetStart = entryStart + targetOffset;
-    const auto* target = reinterpret_cast<const xt_entry_target*>(targetStart);
+    const ExtensionHeader target = RuleLayout::readTargetHeader(targetStart);
 
     /* LEARN: target_size counts the target header plus its payload (and padding). It must be
        large enough for a whole xt_nflog_info, and the target must end inside the rule.
     */
-    const std::size_t targetBytes = target->u.user.target_size;
+    const std::size_t targetBytes = target.size;
     const std::size_t nflogTargetBytes = sizeof(xt_entry_target) + sizeof(xt_nflog_info);
     const std::size_t targetEnd = targetOffset + targetBytes;
     if (targetBytes < nflogTargetBytes || targetEnd > entryEnd)
@@ -148,10 +149,9 @@ const unsigned char* NflogTarget::dataOf(const ipt_entry& entry)
     /* LEARN: the name field is fixed-size and may lack a terminator; strncmp never reads past it.
        Any other name (another target, or the empty name of ACCEPT/DROP) is not NFLOG.
     */
-    const std::size_t nameFieldBytes = sizeof(target->u.user.name);
-    if (std::strncmp(target->u.user.name, NFLOG_TARGET_NAME, nameFieldBytes) != 0)
+    if (!target.hasName(NFLOG_TARGET_NAME))
     {
         return nullptr;
     }
-    return target->data;
+    return RuleLayout::targetPayload(targetStart);
 }

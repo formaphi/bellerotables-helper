@@ -1,5 +1,7 @@
 #include "adapter_iptc/targets/standard_target.h"
 
+#include "adapter_iptc/rule_layout.h"
+
 #include <linux/netfilter.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter_ipv4/ip_tables.h>
@@ -11,14 +13,12 @@ StandardTarget::StandardTarget(Verdict verdict)
 
 std::size_t StandardTarget::size() const
 {
-    return XT_ALIGN(sizeof(xt_standard_target));
+    return RuleLayout::standardTargetSize();
 }
 
 void StandardTarget::write(unsigned char* ptr) const
 {
-    auto* standardTarget = reinterpret_cast<xt_standard_target*>(ptr);
-    standardTarget->target.u.user.target_size = size();
-    standardTarget->verdict = verdict_;
+    RuleLayout::writeStandardTarget(ptr, verdict_);
 }
 
 int StandardTarget::toKernel(Verdict verdict)

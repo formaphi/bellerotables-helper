@@ -1,5 +1,7 @@
 #include "adapter_iptc/matchs/hashlimit_match.h"
 
+#include "adapter_iptc/rule_layout.h"
+
 #include <cstring>
 #include <linux/netfilter/xt_hashlimit.h>
 #include <utility>
@@ -36,13 +38,14 @@ std::size_t HashlimitMatch::dataSize() const
 
 void HashlimitMatch::fillData(unsigned char* data) const
 {
-    auto* info = reinterpret_cast<xt_hashlimit_mtinfo1*>(data);
-    std::strncpy(info->name, m_hashlimitName.c_str(), sizeof(info->name) - 1);
-    info->cfg.mode = m_mode;
-    info->cfg.avg = m_average;
-    info->cfg.burst = m_burst;
-    info->cfg.expire = m_expire;
-    info->cfg.gc_interval = m_garbageCollectionInterval;
-    info->cfg.srcmask = m_sourceMask;
-    info->cfg.dstmask = m_destinationMask;
+    xt_hashlimit_mtinfo1 info{};
+    std::strncpy(info.name, m_hashlimitName.c_str(), sizeof(info.name) - 1);
+    info.cfg.mode = m_mode;
+    info.cfg.avg = m_average;
+    info.cfg.burst = m_burst;
+    info.cfg.expire = m_expire;
+    info.cfg.gc_interval = m_garbageCollectionInterval;
+    info.cfg.srcmask = m_sourceMask;
+    info.cfg.dstmask = m_destinationMask;
+    RuleLayout::store(data, info);
 }

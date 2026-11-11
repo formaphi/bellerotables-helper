@@ -1,5 +1,7 @@
 #include "adapter_iptc/matchs/tcp_match.h"
 
+#include "adapter_iptc/rule_layout.h"
+
 #include <linux/netfilter/xt_tcpudp.h>
 #include <netinet/in.h>
 
@@ -37,9 +39,10 @@ std::size_t TcpMatch::dataSize() const
 
 void TcpMatch::fillData(unsigned char* data) const
 {
-    auto* info = reinterpret_cast<xt_tcp*>(data);
-    info->spts[0] = 0;
-    info->spts[1] = 65535;
-    info->dpts[0] = m_destinationPortMin;
-    info->dpts[1] = m_destinationPortMax;
+    xt_tcp info{};
+    info.spts[0] = 0;
+    info.spts[1] = 65535;
+    info.dpts[0] = m_destinationPortMin;
+    info.dpts[1] = m_destinationPortMax;
+    RuleLayout::store(data, info);
 }

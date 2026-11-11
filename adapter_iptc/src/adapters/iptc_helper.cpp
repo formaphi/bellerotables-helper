@@ -2,6 +2,7 @@
 
 #include "adapter_iptc/exceptions/iptc_exception.h"
 #include "adapter_iptc/ipt_entry_ptr.h"
+#include "adapter_iptc/rule_layout.h"
 
 #include <cerrno>
 #include <cstdlib>
@@ -25,13 +26,7 @@ namespace {
 
 IptEntryPtr copyOf(const ipt_entry& entry)
 {
-    void* buffer = std::calloc(1, entry.next_offset);
-    if (buffer == nullptr)
-    {
-        throw std::bad_alloc();
-    }
-    auto* rule = static_cast<ipt_entry*>(buffer);
-    IptEntryPtr copy(rule, &std::free);
+    IptEntryPtr copy = RuleLayout::allocateEntry(entry.next_offset);
     std::memcpy(copy.get(), &entry, entry.next_offset);
     return copy;
 }

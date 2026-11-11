@@ -1,5 +1,7 @@
 #include "adapter_iptc/targets/extension_target_template.h"
 
+#include "adapter_iptc/rule_layout.h"
+
 #include <cstring>
 #include <linux/netfilter/x_tables.h>
 
@@ -10,8 +12,6 @@ std::size_t ExtensionTargetTemplate::size() const
 
 void ExtensionTargetTemplate::write(unsigned char* ptr) const
 {
-    auto* target = reinterpret_cast<xt_entry_target*>(ptr);
-    target->u.user.target_size = size();
-    std::strncpy(target->u.user.name, name(), sizeof(target->u.user.name) - 1);
-    fillData(target->data);
+    RuleLayout::writeTargetHeader(ptr, size(), name());
+    fillData(RuleLayout::targetPayload(ptr));
 }

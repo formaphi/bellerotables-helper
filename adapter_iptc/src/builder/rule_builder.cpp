@@ -1,6 +1,7 @@
 #include "adapter_iptc/builder/rule_builder.h"
 
 #include "adapter_iptc/ipt_entry_ptr.h"
+#include "adapter_iptc/rule_layout.h"
 
 #include <cstdlib>
 #include <linux/netfilter_ipv4/ip_tables.h>
@@ -27,13 +28,7 @@ IptEntryPtr RuleBuilder::build() const
     auto targetOffset = sizeof(ipt_entry) + matchesSize;
     auto total = targetOffset + target_->size();
 
-    void* buffer = std::calloc(1, total);
-    if (buffer == nullptr)
-    {
-        throw std::bad_alloc();
-    }
-    auto* rule = static_cast<ipt_entry*>(buffer);
-    IptEntryPtr entry(rule, &std::free);
+    IptEntryPtr entry = RuleLayout::allocateEntry(total);
     entry->target_offset = targetOffset;
     entry->next_offset = total;
     entry->ip.proto = resolveProtocol();
