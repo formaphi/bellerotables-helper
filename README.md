@@ -1,102 +1,101 @@
 # bellerotables-helper
 
-Helper C++23 do firewall da Bellerophon NGFW: um binário **one-shot**, ativado por socket do systemd, que
-aplica regras iptables, **lê o estado real do kernel de volta** e devolve esse estado ao `bellero-agent`. Em
-seguida encerra. Roda apenas com `CAP_NET_ADMIN`, sem root completo, e não acessa banco de dados nem rede.
+C++23 firewall helper for the Bellerophon NGFW: a **one-shot** binary, activated by a systemd socket, that
+applies iptables rules, **reads the real kernel state back** and returns that state to `bellero-agent`. It then
+exits. It runs with `CAP_NET_ADMIN` only, not full root, and has no access to a database or the network.
 
-Substitui o uso de cli da iptables e criação de regras manualmente. O alvo
-é a imagem Yocto `meta-bellerophon` (Scarthgap, kernel 6.6). O desenvolvimento acontece em um sandbox Docker
-(Ubuntu 24.04).
+It replaces using the iptables CLI and creating rules by hand. The target is the `meta-bellerophon` Yocto image
+(Scarthgap, kernel 6.6). Development happens in a Docker sandbox (Ubuntu 24.04).
 
-A regra que não pode ser quebrada: o `reported` vem da **realidade** (leitura do kernel), nunca é eco do
-`desired`. Se a aplicação for parcial, o `reported` mostra exatamente o que pegou.
+The rule that cannot be broken: `reported` comes from **reality** (a kernel readback), never an echo of
+`desired`. If the apply is partial, `reported` shows exactly what stuck.
 
-## Fluxo de trabalho
+## Workflow
 
 ```
 bellero-agent  ──(Unix socket)──▶  systemd  ──(sd_listen_fds)──▶  bellerotables-helper
-                                                                      │ aplica via libiptc
-                                                                      ▼ lê o kernel de volta
-bellero-agent  ◀──────────────────  resposta (fase 2)  ───────────────┘
+                                                                      │ applies via libiptc
+                                                                      ▼ reads the kernel back
+bellero-agent  ◀──────────────────  reply (phase 2)  ─────────────────┘
 ```
 
-1. O systemd escuta em `/run/bellerophon/bellerotables-helper.sock` (`Accept=no`, modo `0660`, grupo do agent)
-   e inicia o helper quando chega uma conexão.
-2. O helper pega o socket de escuta com `sd_listen_fds()` e faz `accept()` de **exatamente uma** conexão.
-   As demais ficam no backlog para a próxima ativação.
-3. Confere o processo do outro lado com `SO_PEERCRED`: só o usuário do agent é aceito. O usuário vem de
-   `/etc/bellerophon/bellerotables-helper.conf` (`agent_user=bellero-agent`); arquivo ausente ou usuário
-   desconhecido recusa toda conexão. O uid `PeerCredentials::UNKNOWN_ID` (0, credencial não lida, que também é o
-   root) é sempre recusado, então `agent_user=root` nunca autoriza ninguém: o agent precisa de um usuário próprio
-   sem privilégios.
-4. Lê um frame: 4 bytes de tamanho (big-endian) seguidos do payload. Frames acima de 64 KiB são recusados antes
-   de ler o payload. O payload é o JSON canônico do protobuf `{correlation_id, id, desired}`.
-5. Aplica, relê o estado do kernel e encerra. Fase 1: sem resposta, fecha após tratar. Fase 2: um frame de
-   resposta na mesma conexão, depois fecha.
+1. systemd listens on `/run/bellerophon/bellerotables-helper.sock` (`Accept=no`, mode `0660`, the agent's group)
+   and starts the helper when a connection arrives.
+2. The helper takes the listening socket with `sd_listen_fds()` and `accept()`s **exactly one** connection.
+   The others stay in the backlog for the next activation.
+3. It checks the process on the other end with `SO_PEERCRED`: only the agent's user is accepted. The user comes
+   from `/etc/bellerophon/bellerotables-helper.conf` (`agent_user=bellero-agent`); a missing file or an unknown
+   user refuses every connection. The uid `PeerCredentials::UNKNOWN_ID` (0, an unread credential, which is also
+   root) is always refused, so `agent_user=root` never authorizes anyone: the agent needs its own unprivileged
+   user.
+4. It reads one frame: 4 bytes of length (big-endian) followed by the payload. Frames above 64 KiB are refused
+   before the payload is read. The payload is the canonical protobuf JSON `{correlation_id, id, desired}`.
+5. It applies, reads the kernel state back and exits. Phase 1: no reply, the connection closes after handling.
+   Phase 2: one reply frame on the same connection, then it closes.
 
-### Headers POSIX e do sistema usados
+### POSIX and system headers used
 
-A biblioteca `adapter_socket/` só chama a API C por trás de interfaces (padrão Adapter). Cada header abaixo é
-incluído apenas pelo adapter concreto da sua linha; as classes de domínio recebem a interface por injeção e são
-testadas com mocks. Os adapters devolvem `SyscallResult<T>` / `std::error_code`, e a classe de domínio decide
-entre tentar de novo ou lançar exceção. Detalhes: [docs/syscall-adapters.md](docs/syscall-adapters.md).
+The `adapter_socket/` library only calls the C API behind interfaces (Adapter pattern). Each header below is
+included only by the concrete adapter on its row; the domain classes receive the interface by injection and are
+tested with mocks. The adapters return `SyscallResult<T>` / `std::error_code`, and the domain class decides
+between retrying and throwing an exception. Details: [docs/syscall-adapters.md](docs/syscall-adapters.md).
 
-| Header | Para quê | Interface ← adapter |
-|--------|----------|---------------------|
-| `<systemd/sd-daemon.h>` | `sd_listen_fds()`, `sd_is_socket_unix()`: recebe o socket de escuta do systemd | `ISystemdDaemon` ← `LibsystemdDaemon` |
+| Header | Purpose | Interface ← adapter |
+|--------|---------|---------------------|
+| `<systemd/sd-daemon.h>` | `sd_listen_fds()`, `sd_is_socket_unix()`: receives the listening socket from systemd | `ISystemdDaemon` ← `LibsystemdDaemon` |
 | `<sys/socket.h>` | `accept4`, `recv`, `send`, `getsockopt` (`SO_PEERCRED`) | `ISocketSyscalls` ← `PosixSocketSyscalls` |
-| `<poll.h>`, `<unistd.h>`, `<fcntl.h>` | `poll` (espera com prazo), `close`, `fcntl` (flags do fd) | `IDescriptorSyscalls` ← `PosixDescriptorSyscalls` |
-| `<pwd.h>`, `<unistd.h>` | `getpwnam_r`, `sysconf`: resolve o usuário do agent | `IUserDirectory` ← `PosixUserDirectory` |
+| `<poll.h>`, `<unistd.h>`, `<fcntl.h>` | `poll` (wait with a deadline), `close`, `fcntl` (fd flags) | `IDescriptorSyscalls` ← `PosixDescriptorSyscalls` |
+| `<pwd.h>`, `<unistd.h>` | `getpwnam_r`, `sysconf`: resolves the agent's user | `IUserDirectory` ← `PosixUserDirectory` |
 
-Por que um stream com tamanho no início, e não UDP ou ZeroMQ: [docs/socket-stream-and-framing.md](docs/socket-stream-and-framing.md).
-Papéis de servidor e cliente: [docs/socket-roles.md](docs/socket-roles.md). Entrada única da biblioteca
+Why a stream with a length prefix, and not UDP or ZeroMQ: [docs/socket-stream-and-framing.md](docs/socket-stream-and-framing.md).
+Server and client roles: [docs/socket-roles.md](docs/socket-roles.md). The library's single entry point
 (`acceptAuthorized()`): [docs/socket-endpoint.md](docs/socket-endpoint.md).
 
-## Dependências
+## Dependencies
 
-| Dependência | Origem | Uso |
-|-------------|--------|-----|
-| C++23, CMake 3.28+, GCC 13 | sandbox | mesma versão major do Yocto Scarthgap |
-| Conan 2.x | sandbox | gerencia as dependências abaixo |
-| `nlohmann_json` 3.11.3 | Conan | JSON dos payloads |
-| `gtest` 1.14.0 (GTest + GMock) | Conan | testes |
-| `libiptc-dev` (link `ip4tc`), `libxtables-dev` | apt | aplicar e ler regras |
-| `libsystemd-dev` | apt | ativação por socket |
-| `iptables` no backend legacy | apt | a CLI enxerga o que a libiptc escreve |
+| Dependency | Source | Use |
+|------------|--------|-----|
+| C++23, CMake 3.28+, GCC 13 | sandbox | same major version as Yocto Scarthgap |
+| Conan 2.x | sandbox | manages the dependencies below |
+| `nlohmann_json` 3.11.3 | Conan | payload JSON |
+| `gtest` 1.14.0 (GTest + GMock) | Conan | tests |
+| `libiptc-dev` (link `ip4tc`), `libxtables-dev` | apt | applying and reading rules |
+| `libsystemd-dev` | apt | socket activation |
+| `iptables` on the legacy backend | apt | the CLI sees what libiptc writes |
 
-Adicionar uma dependência Conan exige `make sandbox-build` de novo: a imagem pré-compila o cache e o
-`conan install` roda com `--no-remote`.
+Adding a Conan dependency requires running `make sandbox-build` again: the image pre-builds the cache and
+`conan install` runs with `--no-remote`.
 
-## Comandos make
+## Make commands
 
-Todo build roda dentro do sandbox. Rode `make help` para a lista completa.
+Every build runs inside the sandbox. Run `make help` for the full list.
 
 ```bash
-make setup                            # ativa o hook de pre-commit (uma vez após clonar)
-make sandbox-build                    # constrói a imagem (pré-compila as deps do Conan)
-make sandbox-shell                    # shell no container, repo em /workspace
+make setup                            # activates the pre-commit hook (once after cloning)
+make sandbox-build                    # builds the image (pre-builds the Conan deps)
+make sandbox-shell                    # shell in the container, repo at /workspace
 
-make rebuild                          # binário Release -> production-builds/release/
-make rebuild-unit && make test-unit   # testes + cobertura (coverage-reports/html/index.html)
-make rebuild-asan && make test-asan   # testes com ASan + UBSan
+make rebuild                          # Release binary -> production-builds/release/
+make rebuild-unit && make test-unit   # tests + coverage (coverage-reports/html/index.html)
+make rebuild-asan && make test-asan   # tests under ASan + UBSan
 make rebuild-valgrind && make test-valgrind
-make rebuild-tsan && make test-tsan   # ver nota abaixo
-make test-one-asan PATTERN=<regex>    # um binário de teste; vale também para -unit, -tsan, -valgrind
+make rebuild-tsan && make test-tsan   # see the note below
+make test-one-asan PATTERN=<regex>    # one test binary; also works for -unit, -tsan, -valgrind
 
-make format                           # aplica clang-format (format-check só confere)
-make tidy-fix                         # aplica clang-tidy (tidy-check só confere); precisa de 'make configure'
+make format                           # applies clang-format (format-check only checks)
+make tidy-fix                         # applies clang-tidy (tidy-check only checks); needs 'make configure'
 ```
 
-O TSan aborta com `unexpected memory mapping` em hosts com `vm.mmap_rnd_bits=32`. Rode
-`sudo sysctl vm.mmap_rnd_bits=28` no host antes de `make test-tsan`.
+TSan aborts with `unexpected memory mapping` on hosts with `vm.mmap_rnd_bits=32`. Run
+`sudo sysctl vm.mmap_rnd_bits=28` on the host before `make test-tsan`.
 
-O hook de pre-commit executa: imagem do sandbox, `format-check`, release, `tidy-check`, testes unitários, ASan
-e Valgrind. Como cada build type funciona e suas armadilhas: [docs/build/](docs/build/).
+The pre-commit hook runs: sandbox image, `format-check`, release, `tidy-check`, unit tests, ASan and Valgrind.
+How each build type works and its pitfalls: [docs/build/](docs/build/).
 
-## Padrão de commit
+## Commit convention
 
-[Conventional Commits](https://www.conventionalcommits.org/) em inglês: `tipo(escopo): descrição`, com o
-escopo opcional.
+[Conventional Commits](https://www.conventionalcommits.org/) in English: `type(scope): description`, with the
+scope optional.
 
 ```
 feat(adapter_socket): socket endpoint, listener, deadline and file descriptor
@@ -104,39 +103,39 @@ build: port piiptables sandbox build infra
 docs: record perf profiling options, deferred until a high-load E2E exists
 ```
 
-Tipos usados: `feat`, `fix`, `refactor`, `test`, `build`, `docs`, `chore`.
+Types used: `feat`, `fix`, `refactor`, `test`, `build`, `docs`, `chore`.
 
-Fluxo de branches: a feature sai da `develop` e volta por squash merge. A `develop` só entra na `master`
-depois que o slice passa na validação ponta a ponta do `EndToEnd`. Uma branch só é apagada depois que o
-trabalho chega à `master`.
+Branch flow: a feature branches off `develop` and comes back by squash merge. `develop` only enters `master`
+after the slice passes the end-to-end validation in `EndToEnd`. A branch is only deleted after its work has
+reached `master`.
 
-## Padrão de include
+## Include convention
 
-Primeiro o header do próprio arquivo; depois os headers do projeto com aspas (`#include "adapter_socket/..."`);
-por fim tudo o que vem de fora do projeto com `<>` (C/POSIX, biblioteca padrão, gtest, libsystemd). Cada bloco em
-ordem alfabética. O `make format` aplica a ordem; o `make format-check` também recusa header do projeto com `<>`.
-Detalhes: [docs/build/clang-format.md](docs/build/clang-format.md).
+First the file's own header; then project headers with quotes (`#include "adapter_socket/..."`); finally
+everything from outside the project with `<>` (C/POSIX, standard library, gtest, libsystemd). Each block in
+alphabetical order. `make format` applies the ordering; `make format-check` also rejects a project header
+included with `<>`. Details: [docs/build/clang-format.md](docs/build/clang-format.md).
 
-## Padrão de comentário
+## Comment convention
 
-Todo comentário começa com um **modificador** em maiúsculas, seguido de dois-pontos e uma descrição. Comentário
-sem modificador não é aceito, e o modificador sozinho também não.
+Every comment starts with an uppercase **modifier**, followed by a colon and a description. A comment without a
+modifier is not accepted, and neither is a bare modifier.
 
-| Modificador | Significado |
-|-------------|-------------|
-| `BUG` | problema conhecido que causa comportamento incorreto |
-| `COMPLEX` | código complicado que precisa de revisão ou refatoração |
-| `FIXME` | problema conhecido que precisa ser corrigido |
-| `HACK` | solução não ideal ou contorno temporário |
-| `LEARN` | ponto importante e não óbvio, que pede entendimento (use para explicar código) |
-| `OPTIMIZE` | trecho que pode ser otimizado |
-| `REVIEW` | trecho que merece revisão |
-| `TODO` | trabalho ainda por fazer neste bloco |
+| Modifier | Meaning |
+|----------|---------|
+| `BUG` | known issue that causes incorrect behavior |
+| `COMPLEX` | complicated code that needs review or refactoring |
+| `FIXME` | known issue that needs to be fixed |
+| `HACK` | solution that is not ideal or is a temporary workaround |
+| `LEARN` | important, non-obvious point that needs understanding (use it to explain code) |
+| `OPTIMIZE` | code that can be optimized |
+| `REVIEW` | code that deserves review |
+| `TODO` | more work to be done in this block |
 
 ```cpp
-// LEARN: SO_PEERCRED devolve o uid do processo que fez connect(), não de quem abriu o socket.
-// TODO: tratar EINTR no poll quando houver tratamento de sinais.
+// LEARN: SO_PEERCRED returns the uid of the process that called connect(), not of whoever opened the socket.
+// TODO: handle EINTR in poll once signal handling exists.
 ```
 
-São as tags do [Todo Tree](https://github.com/Gruntfuggly/todo-tree), que lista todas no editor. Ficam no
-código ao fazer merge, não remova antes.
+These are the [Todo Tree](https://github.com/Gruntfuggly/todo-tree) tags, which lists all of them in the
+editor. They stay in the code when merging, so do not remove them beforehand.
