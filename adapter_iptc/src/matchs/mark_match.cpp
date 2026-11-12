@@ -19,9 +19,15 @@ constexpr uint32_t EVERY_MARK_BIT = 0xffffffff;
 
 } // namespace
 
-MarkMatch::MarkMatch(uint32_t mark, uint32_t mask)
+MarkMatch::MarkMatch(uint32_t mark)
     : m_mark(mark)
-    , m_mask(mask)
+    , m_mask(EVERY_MARK_BIT)
+{
+}
+
+MarkMatch::MarkMatch(MaskedMark maskedMark)
+    : m_mark(maskedMark.mark)
+    , m_mask(maskedMark.mask)
 {
 }
 

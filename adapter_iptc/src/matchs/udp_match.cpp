@@ -6,14 +6,12 @@
 #include <netinet/in.h>
 
 UdpMatch::UdpMatch(uint16_t destinationPort)
-    : m_destinationPortMin(destinationPort)
-    , m_destinationPortMax(destinationPort)
+    : m_destinationPorts{.min = destinationPort, .max = destinationPort}
 {
 }
 
-UdpMatch::UdpMatch(uint16_t destinationPortMin, uint16_t destinationPortMax)
-    : m_destinationPortMin(destinationPortMin)
-    , m_destinationPortMax(destinationPortMax)
+UdpMatch::UdpMatch(PortRange destinationPorts)
+    : m_destinationPorts(destinationPorts)
 {
 }
 
@@ -42,7 +40,7 @@ void UdpMatch::fillData(unsigned char* data) const
     xt_udp info{};
     info.spts[0] = 0;
     info.spts[1] = 65535;
-    info.dpts[0] = m_destinationPortMin;
-    info.dpts[1] = m_destinationPortMax;
+    info.dpts[0] = m_destinationPorts.min;
+    info.dpts[1] = m_destinationPorts.max;
     RuleLayout::store(data, info);
 }

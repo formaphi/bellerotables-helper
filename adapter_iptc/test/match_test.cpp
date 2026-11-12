@@ -69,8 +69,10 @@ const xt_entry_match* headerOf(const std::vector<unsigned char>& buffer)
 
 std::shared_ptr<HashlimitMatch> sampleHashlimit()
 {
-    return std::make_shared<HashlimitMatch>(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE,
-                                            SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE);
+    return std::make_shared<HashlimitMatch>(HashlimitParam{.name = SAMPLE_HASHLIMIT_NAME,
+                                                           .average = SAMPLE_HASHLIMIT_AVERAGE,
+                                                           .burst = SAMPLE_HASHLIMIT_BURST,
+                                                           .expire = SAMPLE_HASHLIMIT_EXPIRE});
 }
 
 std::vector<unsigned char> writeToZeroedBuffer(const TemplateMatch& match)
@@ -201,7 +203,8 @@ struct MarkWriteCase
 };
 
 const std::vector<MarkWriteCase> MARK_WRITE_CASES{
-    {MarkMatch(SAMPLE_MARK, SAMPLE_MARK_MASK), SAMPLE_MARK, SAMPLE_MARK_MASK, "ExplicitMask"},
+    {MarkMatch(MaskedMark{SAMPLE_MARK, SAMPLE_MARK_MASK}), SAMPLE_MARK, SAMPLE_MARK_MASK,
+     "ExplicitMask"},
     {MarkMatch(SAMPLE_MARK), SAMPLE_MARK, FULL_MARK_MASK, "DefaultMaskCoversAllMarkBits"},
 };
 
@@ -237,13 +240,13 @@ const std::vector<PortCase> PORT_CASES{
     {[]() -> std::shared_ptr<TemplateMatch> { return std::make_shared<TcpMatch>(SAMPLE_PORT); },
      tcpPortsOf, SAMPLE_PORT, SAMPLE_PORT, "TcpSinglePort"},
     {[]() -> std::shared_ptr<TemplateMatch> {
-         return std::make_shared<TcpMatch>(SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX);
+         return std::make_shared<TcpMatch>(PortRange{SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX});
      },
      tcpPortsOf, SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX, "TcpPortRange"},
     {[]() -> std::shared_ptr<TemplateMatch> { return std::make_shared<UdpMatch>(SAMPLE_PORT); },
      udpPortsOf, SAMPLE_PORT, SAMPLE_PORT, "UdpSinglePort"},
     {[]() -> std::shared_ptr<TemplateMatch> {
-         return std::make_shared<UdpMatch>(SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX);
+         return std::make_shared<UdpMatch>(PortRange{SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX});
      },
      udpPortsOf, SAMPLE_PORT_RANGE_MIN, SAMPLE_PORT_RANGE_MAX, "UdpPortRange"},
 };
@@ -317,10 +320,15 @@ TEST(HashlimitMatchTest, WriteFillsNamedRateConfigWithDefaults)
 
 TEST(HashlimitMatchTest, ExplicitModeIsWrittenVerbatim)
 {
-    const HashlimitMatch match(SAMPLE_HASHLIMIT_NAME, SAMPLE_HASHLIMIT_AVERAGE,
-                               SAMPLE_HASHLIMIT_BURST, SAMPLE_HASHLIMIT_EXPIRE,
-                               DEFAULT_GARBAGE_COLLECTION_INTERVAL, DEFAULT_HOST_MASK,
-                               DEFAULT_HOST_MASK, EXPLICIT_HASHLIMIT_MODE);
+    const HashlimitMatch match(
+        HashlimitParam{.name = SAMPLE_HASHLIMIT_NAME,
+                       .average = SAMPLE_HASHLIMIT_AVERAGE,
+                       .burst = SAMPLE_HASHLIMIT_BURST,
+                       .expire = SAMPLE_HASHLIMIT_EXPIRE,
+                       .garbageCollectionInterval = DEFAULT_GARBAGE_COLLECTION_INTERVAL,
+                       .sourceMask = DEFAULT_HOST_MASK,
+                       .destinationMask = DEFAULT_HOST_MASK,
+                       .mode = EXPLICIT_HASHLIMIT_MODE});
     const auto buffer = writeToZeroedBuffer(match);
     const auto* info = reinterpret_cast<const xt_hashlimit_mtinfo1*>(headerOf(buffer)->data);
 
@@ -358,7 +366,10 @@ const std::vector<MarkReadCase> MARK_REJECTED_CASES{
      },
      std::nullopt, "EntryWithoutMarkMatchHasNoMark"},
     {[]() { return acceptEntryWith({}); }, std::nullopt, "EntryWithoutMatchesHasNoMark"},
-    {[]() { return acceptEntryWith({std::make_shared<MarkMatch>(SAMPLE_MARK, SAMPLE_MARK_MASK)}); },
+    {[]() {
+         return acceptEntryWith(
+             {std::make_shared<MarkMatch>(MaskedMark{SAMPLE_MARK, SAMPLE_MARK_MASK})});
+     },
      std::nullopt, "PartialMaskIsNotAPlainMark"},
     {[]() {
          IptEntryPtr entry = markEntry();

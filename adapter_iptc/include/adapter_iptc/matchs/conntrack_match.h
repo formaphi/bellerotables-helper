@@ -24,10 +24,16 @@ protected:
     void fillData(unsigned char* data) const override;
 
 private:
-    uint16_t m_matchFlags{};
-    uint16_t m_stateMask{};
+    /* LEARN: the two values State stands for in xt_conntrack_mtinfo3. */
+    struct Flags
+    {
+        uint16_t matchFlags;
+        uint16_t stateMask;
+    };
 
-    static void resolve(State state, uint16_t& matchFlags, uint16_t& stateMask);
+    Flags m_flags;
+
+    [[nodiscard]] static Flags resolve(State state);
 };
 
 #endif

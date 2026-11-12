@@ -6,14 +6,12 @@
 #include <netinet/in.h>
 
 TcpMatch::TcpMatch(uint16_t destinationPort)
-    : m_destinationPortMin(destinationPort)
-    , m_destinationPortMax(destinationPort)
+    : m_destinationPorts{.min = destinationPort, .max = destinationPort}
 {
 }
 
-TcpMatch::TcpMatch(uint16_t destinationPortMin, uint16_t destinationPortMax)
-    : m_destinationPortMin(destinationPortMin)
-    , m_destinationPortMax(destinationPortMax)
+TcpMatch::TcpMatch(PortRange destinationPorts)
+    : m_destinationPorts(destinationPorts)
 {
 }
 
@@ -42,7 +40,7 @@ void TcpMatch::fillData(unsigned char* data) const
     xt_tcp info{};
     info.spts[0] = 0;
     info.spts[1] = 65535;
-    info.dpts[0] = m_destinationPortMin;
-    info.dpts[1] = m_destinationPortMax;
+    info.dpts[0] = m_destinationPorts.min;
+    info.dpts[1] = m_destinationPorts.max;
     RuleLayout::store(data, info);
 }

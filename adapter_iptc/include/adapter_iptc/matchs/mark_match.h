@@ -12,7 +12,8 @@ struct ipt_entry;
 class MarkMatch : public TemplateMatch
 {
 public:
-    MarkMatch(uint32_t mark, uint32_t mask = 0xffffffff);
+    explicit MarkMatch(uint32_t mark);
+    explicit MarkMatch(MaskedMark maskedMark);
 
     /* LEARN: decodes the entry's first mark match read back from the kernel. nullopt when there
        is none, or when it is not a plain match (mask other than every bit, or inverted): MarkParam
